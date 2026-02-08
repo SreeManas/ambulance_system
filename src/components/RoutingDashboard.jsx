@@ -1,0 +1,943 @@
+// src/components/RoutingDashboard.jsx
+/**
+ * Routing Intelligence Dashboard v1.0
+ * 
+ * Emergency command interface for ambulance routing visualization.
+ * Displays ranked hospitals, routes, ETA comparisons, and real-time updates.
+ */
+
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import mapboxgl from "mapbox-gl";
+import "mapbox-gl/dist/mapbox-gl.css";
+import { getFirestore, collection, onSnapshot, query, orderBy, limit, where, doc } from "firebase/firestore";
+import { rankHospitals, getTopRecommendations, calculateDistanceKm } from "../services/capabilityScoringEngine.js";
+import {
+    MapPin, Clock, AlertTriangle, Building2, Heart, Activity,
+    Navigation, Zap, Users, ChevronRight, Timer, RefreshCw, Layers,
+    Ambulance, Phone, CheckCircle, XCircle, Info
+} from "lucide-react";
+
+mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN || "";
+
+// =============================================================================
+// CONSTANTS
+// =============================================================================
+
+const DEFAULT_CENTER = [77.5946, 12.9716]; // Bangalore
+const DEFAULT_ZOOM = 11;
+
+const ROUTE_COLORS = {
+    primary: "#22c55e",   // Green - top pick
+    secondary: "#eab308", // Yellow - 2nd
+    tertiary: "#ef4444"   // Red - 3rd
+};
+
+const MARKER_COLORS = {
+    top: "#22c55e",
+    moderate: "#eab308",
+    low: "#ef4444",
+    disqualified: "#6b7280"
+};
+
+const OSM_STYLE = {
+    version: 8,
+    sources: {
+        osm: {
+            type: "raster",
+            tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+            tileSize: 256,
+            attribution: "© OpenStreetMap contributors",
+        },
+    },
+    layers: [{ id: "osm", type: "raster", source: "osm" }],
+};
+
+// =============================================================================
+// UTILITY FUNCTIONS
+// =============================================================================
+
+function formatTimeSince(timestamp) {
+    if (!timestamp) return "Unknown";
+
+    let ts;
+    if (timestamp._seconds) ts = timestamp._seconds * 1000;
+    else if (timestamp.toMillis) ts = timestamp.toMillis();
+    else ts = new Date(timestamp).getTime();
+
+    const mins = Math.floor((Date.now() - ts) / 60000);
+    if (mins < 1) return "Just now";
+    if (mins < 60) return `${mins}m ago`;
+    return `${Math.floor(mins / 60)}h ${mins % 60}m ago`;
+}
+
+function getGoldenHourRemaining(timestamp) {
+    if (!timestamp) return null;
+
+    let ts;
+    if (timestamp._seconds) ts = timestamp._seconds * 1000;
+    else if (timestamp.toMillis) ts = timestamp.toMillis();
+    else ts = new Date(timestamp).getTime();
+
+    const elapsed = (Date.now() - ts) / 60000;
+    const remaining = 60 - elapsed;
+
+    return remaining > 0 ? Math.round(remaining) : null;
+}
+
+function getMarkerColor(rank, total) {
+    if (rank === 1) return MARKER_COLORS.top;
+    if (rank <= 3) return MARKER_COLORS.moderate;
+    return MARKER_COLORS.low;
+}
+
+function getAcuityLabel(level) {
+    const labels = {
+        5: { text: "CRITICAL", color: "bg-red-600" },
+        4: { text: "SEVERE", color: "bg-orange-500" },
+        3: { text: "MODERATE", color: "bg-yellow-500" },
+        2: { text: "MILD", color: "bg-blue-500" },
+        1: { text: "MINOR", color: "bg-green-500" }
+    };
+    return labels[level] || { text: "UNKNOWN", color: "bg-gray-500" };
+}
+
+function getLoadColor(status) {
+    if (status === "full" || status === "critical") return "bg-red-500";
+    if (status === "diverting" || status === "busy") return "bg-orange-500";
+    return "bg-green-500";
+}
+
+// =============================================================================
+// MAIN COMPONENT
+// =============================================================================
+
+export default function RoutingDashboard() {
+    const mapRef = useRef(null);
+    const containerRef = useRef(null);
+    const markersRef = useRef([]);
+    const routeSourcesRef = useRef([]);
+
+    // Map state
+    const [mapLoaded, setMapLoaded] = useState(false);
+    const [mapError, setMapError] = useState("");
+
+    // Data state
+    const [emergencyCases, setEmergencyCases] = useState([]);
+    const [hospitals, setHospitals] = useState([]);
+    const [selectedCase, setSelectedCase] = useState(null);
+    const [selectedHospital, setSelectedHospital] = useState(null);
+    const [rankedHospitals, setRankedHospitals] = useState([]);
+    const [routes, setRoutes] = useState({});
+
+    // UI state
+    const [showCompareMode, setShowCompareMode] = useState(true);
+    const [isLoadingRoutes, setIsLoadingRoutes] = useState(false);
+    const [goldenHourRemaining, setGoldenHourRemaining] = useState(null);
+    const [routingState, setRoutingState] = useState("idle"); // idle, evaluating, hospital_selected, en_route
+
+    const db = getFirestore();
+
+    // =============================================================================
+    // FIRESTORE LISTENERS
+    // =============================================================================
+
+    // Listen to emergency cases
+    useEffect(() => {
+        const q = query(
+            collection(db, "emergencyCases"),
+            orderBy("createdAt", "desc"),
+            limit(10)
+        );
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const cases = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            }));
+            setEmergencyCases(cases);
+
+            // Auto-select first case if none selected
+            if (!selectedCase && cases.length > 0) {
+                setSelectedCase(cases[0]);
+            }
+        }, (error) => {
+            console.error("Emergency cases listener error:", error);
+        });
+
+        return () => unsubscribe();
+    }, [db, selectedCase]);
+
+    // Listen to hospitals
+    useEffect(() => {
+        const unsubscribe = onSnapshot(collection(db, "hospitals"), (snapshot) => {
+            const hospitalList = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            }));
+            setHospitals(hospitalList);
+        }, (error) => {
+            console.error("Hospitals listener error:", error);
+        });
+
+        return () => unsubscribe();
+    }, [db]);
+
+    // =============================================================================
+    // SCORING & RANKING
+    // =============================================================================
+
+    // Re-rank hospitals when case or hospitals change
+    useEffect(() => {
+        if (!selectedCase || hospitals.length === 0) {
+            setRankedHospitals([]);
+            return;
+        }
+
+        setRoutingState("evaluating");
+
+        const ranked = rankHospitals(hospitals, selectedCase);
+        setRankedHospitals(ranked);
+
+        // Auto-select top hospital
+        const topHospital = ranked.find(h => !h.disqualified);
+        if (topHospital && !selectedHospital) {
+            setSelectedHospital(topHospital);
+        }
+
+        setRoutingState("hospital_selected");
+    }, [selectedCase, hospitals]);
+
+    // Golden hour timer
+    useEffect(() => {
+        if (!selectedCase) return;
+
+        const incidentTime = selectedCase.emergencyContext?.incidentTimestamp ||
+            selectedCase.incidentTimestamp;
+
+        const updateGoldenHour = () => {
+            const remaining = getGoldenHourRemaining(incidentTime);
+            setGoldenHourRemaining(remaining);
+        };
+
+        updateGoldenHour();
+        const interval = setInterval(updateGoldenHour, 10000); // Every 10 seconds
+
+        return () => clearInterval(interval);
+    }, [selectedCase]);
+
+    // =============================================================================
+    // MAP INITIALIZATION
+    // =============================================================================
+
+    useEffect(() => {
+        if (mapRef.current) return;
+        const container = containerRef.current;
+        if (!container) return;
+
+        // Determine initial center: pickup location > default
+        const initialCenter = selectedCase?.pickupLocation
+            ? [selectedCase.pickupLocation.longitude, selectedCase.pickupLocation.latitude]
+            : DEFAULT_CENTER;
+
+        const initMap = (style) => {
+            const map = new mapboxgl.Map({
+                container,
+                style,
+                center: initialCenter,
+                zoom: selectedCase?.pickupLocation ? 13 : DEFAULT_ZOOM,
+            });
+
+            map.addControl(new mapboxgl.NavigationControl(), "top-right");
+            map.addControl(new mapboxgl.ScaleControl(), "bottom-left");
+
+            map.on("load", () => {
+                setMapLoaded(true);
+                map.resize();
+            });
+
+            map.on("error", (e) => {
+                console.error("Map error:", e);
+                setMapError("Map failed to load");
+            });
+
+            mapRef.current = map;
+        };
+
+        if (!mapboxgl.accessToken || mapboxgl.accessToken.trim() === "") {
+            initMap(OSM_STYLE);
+        } else {
+            initMap("mapbox://styles/mapbox/dark-v11");
+        }
+
+        return () => {
+            if (mapRef.current) {
+                try { mapRef.current.remove(); } catch { }
+                mapRef.current = null;
+            }
+        };
+    }, []);
+
+    // =============================================================================
+    // INTELLIGENT VIEWPORT MANAGEMENT
+    // =============================================================================
+
+    // Fly to pickup location when selected case changes
+    useEffect(() => {
+        if (!mapRef.current || !mapLoaded) return;
+        if (!selectedCase?.pickupLocation) return;
+
+        const pickup = selectedCase.pickupLocation;
+
+        // If no hospitals yet, fly to pickup with smooth animation
+        if (rankedHospitals.length === 0) {
+            mapRef.current.flyTo({
+                center: [pickup.longitude, pickup.latitude],
+                zoom: 14,
+                duration: 1500,
+                essential: true
+            });
+        }
+    }, [mapLoaded, selectedCase?.pickupLocation, rankedHospitals.length]);
+
+    // Fit bounds when hospitals are ranked (priority: pickup + hospitals)
+    useEffect(() => {
+        if (!mapRef.current || !mapLoaded) return;
+        if (!selectedCase?.pickupLocation || rankedHospitals.length === 0) return;
+
+        const map = mapRef.current;
+        const pickup = selectedCase.pickupLocation;
+        const bounds = new mapboxgl.LngLatBounds();
+
+        // Add pickup location
+        bounds.extend([pickup.longitude, pickup.latitude]);
+
+        // Add top 5 ranked hospitals
+        let hospitalCount = 0;
+        rankedHospitals.slice(0, 5).forEach(h => {
+            const hospitalData = hospitals.find(hosp => hosp.id === h.hospitalId);
+            if (hospitalData?.basicInfo?.location) {
+                bounds.extend([
+                    hospitalData.basicInfo.location.longitude,
+                    hospitalData.basicInfo.location.latitude
+                ]);
+                hospitalCount++;
+            }
+        });
+
+        // Only fitBounds if we have at least one hospital location
+        if (hospitalCount > 0) {
+            map.fitBounds(bounds, {
+                padding: { top: 60, bottom: 60, left: 60, right: 420 }, // Account for right panel
+                maxZoom: 14,
+                duration: 1200,
+                essential: true
+            });
+        }
+    }, [mapLoaded, selectedCase?.pickupLocation, rankedHospitals, hospitals]);
+
+    // Fly to selected hospital when clicked in panel
+    useEffect(() => {
+        if (!mapRef.current || !mapLoaded || !selectedHospital) return;
+
+        const hospitalData = hospitals.find(h => h.id === selectedHospital.hospitalId);
+        if (!hospitalData?.basicInfo?.location) return;
+
+        const loc = hospitalData.basicInfo.location;
+        const pickup = selectedCase?.pickupLocation;
+
+        // Create bounds from pickup to selected hospital
+        if (pickup) {
+            const bounds = new mapboxgl.LngLatBounds();
+            bounds.extend([pickup.longitude, pickup.latitude]);
+            bounds.extend([loc.longitude, loc.latitude]);
+
+            mapRef.current.fitBounds(bounds, {
+                padding: { top: 80, bottom: 80, left: 80, right: 420 },
+                maxZoom: 14,
+                duration: 800,
+                essential: true
+            });
+        } else {
+            // Just fly to hospital if no pickup
+            mapRef.current.flyTo({
+                center: [loc.longitude, loc.latitude],
+                zoom: 15,
+                duration: 800,
+                essential: true
+            });
+        }
+    }, [mapLoaded, selectedHospital, hospitals, selectedCase?.pickupLocation]);
+
+    // =============================================================================
+    // ROUTE FETCHING
+    // =============================================================================
+
+    const fetchRoute = useCallback(async (pickup, hospital) => {
+        if (!mapboxgl.accessToken) return null;
+
+        const key = `${pickup.latitude},${pickup.longitude}-${hospital.latitude},${hospital.longitude}`;
+        if (routes[key]) return routes[key];
+
+        try {
+            const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${pickup.longitude},${pickup.latitude};${hospital.longitude},${hospital.latitude}?geometries=geojson&overview=full&access_token=${mapboxgl.accessToken}`;
+
+            const response = await fetch(url);
+            const data = await response.json();
+
+            if (data.routes && data.routes[0]) {
+                const route = data.routes[0].geometry;
+                setRoutes(prev => ({ ...prev, [key]: route }));
+                return route;
+            }
+        } catch (error) {
+            console.error("Route fetch error:", error);
+        }
+        return null;
+    }, [routes]);
+
+    // Fetch routes for top 3 hospitals
+    useEffect(() => {
+        if (!selectedCase?.pickupLocation || rankedHospitals.length === 0) return;
+        if (!mapboxgl.accessToken) return;
+
+        const fetchTopRoutes = async () => {
+            setIsLoadingRoutes(true);
+            const top3 = rankedHospitals.filter(h => !h.disqualified).slice(0, 3);
+
+            for (const hospital of top3) {
+                const hospitalData = hospitals.find(h => h.id === hospital.hospitalId);
+                if (hospitalData?.basicInfo?.location) {
+                    await fetchRoute(selectedCase.pickupLocation, hospitalData.basicInfo.location);
+                }
+            }
+            setIsLoadingRoutes(false);
+        };
+
+        fetchTopRoutes();
+    }, [selectedCase, rankedHospitals, hospitals, fetchRoute]);
+
+    // =============================================================================
+    // MAP RENDERING
+    // =============================================================================
+
+    // Render ambulance marker and hospital markers
+    useEffect(() => {
+        if (!mapRef.current || !mapLoaded) return;
+        const map = mapRef.current;
+
+        // Clear existing markers
+        markersRef.current.forEach(m => m.remove());
+        markersRef.current = [];
+
+        // Clear existing route sources
+        routeSourcesRef.current.forEach(id => {
+            if (map.getLayer(id)) map.removeLayer(id);
+            if (map.getSource(id)) map.removeSource(id);
+        });
+        routeSourcesRef.current = [];
+
+        if (!selectedCase?.pickupLocation) return;
+
+        const pickup = selectedCase.pickupLocation;
+        const acuity = getAcuityLabel(selectedCase.acuityLevel);
+
+        // Create ambulance marker (pickup location)
+        const ambulanceEl = document.createElement("div");
+        ambulanceEl.className = "ambulance-marker";
+        ambulanceEl.innerHTML = `
+      <div class="relative">
+        <div class="absolute -inset-4 bg-red-500 rounded-full animate-ping opacity-30"></div>
+        <div class="relative w-10 h-10 bg-gradient-to-br from-red-500 to-red-700 rounded-full flex items-center justify-center shadow-lg border-2 border-white">
+          <span class="text-white text-lg">🚑</span>
+        </div>
+      </div>
+    `;
+
+        const ambulanceMarker = new mapboxgl.Marker({ element: ambulanceEl })
+            .setLngLat([pickup.longitude, pickup.latitude])
+            .setPopup(new mapboxgl.Popup({ offset: 25 }).setHTML(`
+        <div class="p-3 min-w-[200px]">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="text-xl">🚑</span>
+            <strong class="text-lg">Pickup Location</strong>
+          </div>
+          <div class="space-y-2 text-sm">
+            <div class="flex justify-between">
+              <span class="text-gray-600">Emergency:</span>
+              <span class="font-medium">${selectedCase.emergencyContext?.emergencyType || "Unknown"}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-600">Acuity:</span>
+              <span class="px-2 py-0.5 rounded text-white text-xs ${acuity.color}">${acuity.text}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-600">Time:</span>
+              <span class="font-medium">${formatTimeSince(selectedCase.emergencyContext?.incidentTimestamp)}</span>
+            </div>
+            ${goldenHourRemaining ? `
+              <div class="flex justify-between text-red-600">
+                <span>⏱️ Golden Hour:</span>
+                <span class="font-bold">${goldenHourRemaining}min left</span>
+              </div>
+            ` : ""}
+          </div>
+        </div>
+      `))
+            .addTo(map);
+
+        markersRef.current.push(ambulanceMarker);
+
+        // Create hospital markers
+        rankedHospitals.forEach((scored, index) => {
+            const hospitalData = hospitals.find(h => h.id === scored.hospitalId);
+            if (!hospitalData?.basicInfo?.location) return;
+
+            const loc = hospitalData.basicInfo.location;
+            const rank = index + 1;
+            const color = scored.disqualified ? MARKER_COLORS.disqualified : getMarkerColor(rank, rankedHospitals.length);
+            const loadStatus = hospitalData.emergencyReadiness?.status || "available";
+
+            const hospitalEl = document.createElement("div");
+            hospitalEl.className = "hospital-marker";
+            hospitalEl.innerHTML = `
+        <div class="relative cursor-pointer transition-transform hover:scale-110" data-hospital-id="${scored.hospitalId}">
+          <div class="w-8 h-8 rounded-full flex items-center justify-center shadow-lg border-2 border-white" 
+               style="background: ${color}">
+            <span class="text-white text-sm font-bold">${scored.disqualified ? "✕" : rank}</span>
+          </div>
+          ${rank <= 3 && !scored.disqualified ? `
+            <div class="absolute -top-1 -right-1 w-3 h-3 rounded-full ${getLoadColor(loadStatus)}"></div>
+          ` : ""}
+        </div>
+      `;
+
+            const marker = new mapboxgl.Marker({ element: hospitalEl })
+                .setLngLat([loc.longitude, loc.latitude])
+                .setPopup(new mapboxgl.Popup({ offset: 25, maxWidth: "300px" }).setHTML(`
+          <div class="p-3 min-w-[250px]">
+            <div class="flex items-center justify-between mb-2">
+              <strong class="text-lg">${scored.hospitalName}</strong>
+              <span class="px-2 py-1 rounded text-white text-xs font-bold" style="background: ${color}">
+                ${scored.disqualified ? "EXCLUDED" : `#${rank}`}
+              </span>
+            </div>
+            ${scored.disqualified ? `
+              <div class="bg-red-50 text-red-700 p-2 rounded text-sm mb-2">
+                ${scored.disqualifyReasons?.join(", ") || "Disqualified"}
+              </div>
+            ` : `
+              <div class="space-y-2 text-sm">
+                <div class="flex justify-between">
+                  <span class="text-gray-600">Score:</span>
+                  <span class="font-bold text-lg">${scored.suitabilityScore}</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-gray-600">Distance:</span>
+                  <span>${scored.distanceKm} km</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-gray-600">ETA:</span>
+                  <span class="font-medium">${scored.etaMinutes} min</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-gray-600">Trauma Level:</span>
+                  <span>${scored.traumaLevel?.replace("_", " ").toUpperCase() || "N/A"}</span>
+                </div>
+              </div>
+              <div class="mt-3 pt-2 border-t border-gray-200">
+                <div class="text-xs text-gray-500 mb-1">Recommendation:</div>
+                <div class="text-sm text-gray-700">
+                  ${scored.recommendationReasons?.slice(0, 3).join(" • ") || ""}
+                </div>
+              </div>
+            `}
+          </div>
+        `))
+                .addTo(map);
+
+            // Click handler
+            hospitalEl.addEventListener("click", () => {
+                setSelectedHospital(scored);
+            });
+
+            markersRef.current.push(marker);
+        });
+
+        // Draw routes
+        const top3 = rankedHospitals.filter(h => !h.disqualified).slice(0, 3);
+        top3.forEach((hospital, index) => {
+            const hospitalData = hospitals.find(h => h.id === hospital.hospitalId);
+            if (!hospitalData?.basicInfo?.location) return;
+
+            const key = `${pickup.latitude},${pickup.longitude}-${hospitalData.basicInfo.location.latitude},${hospitalData.basicInfo.location.longitude}`;
+            const routeGeo = routes[key];
+
+            if (!routeGeo) return;
+
+            const sourceId = `route-${index}`;
+            const color = index === 0 ? ROUTE_COLORS.primary : (index === 1 ? ROUTE_COLORS.secondary : ROUTE_COLORS.tertiary);
+            const width = index === 0 ? 6 : 4;
+
+            if (!map.getSource(sourceId)) {
+                map.addSource(sourceId, {
+                    type: "geojson",
+                    data: {
+                        type: "Feature",
+                        geometry: routeGeo
+                    }
+                });
+
+                map.addLayer({
+                    id: sourceId,
+                    type: "line",
+                    source: sourceId,
+                    layout: {
+                        "line-join": "round",
+                        "line-cap": "round"
+                    },
+                    paint: {
+                        "line-color": color,
+                        "line-width": width,
+                        "line-opacity": showCompareMode || index === 0 ? 0.8 : 0.3
+                    }
+                });
+
+                routeSourcesRef.current.push(sourceId);
+            }
+        });
+
+        // Note: Viewport management handled by dedicated useEffects above
+        // (flyTo on case selection, fitBounds on hospital ranking, fly on hospital click)
+
+    }, [mapLoaded, selectedCase, rankedHospitals, hospitals, routes, showCompareMode, goldenHourRemaining]);
+
+    // =============================================================================
+    // RENDER
+    // =============================================================================
+
+    const topRecommendation = rankedHospitals.find(h => !h.disqualified);
+
+    return (
+        <div className="min-h-screen bg-gray-900 flex flex-col">
+            {/* Decision Banner */}
+            {topRecommendation && (
+                <div className="bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-700 text-white px-6 py-3 shadow-lg">
+                    <div className="max-w-7xl mx-auto flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-2">
+                                <CheckCircle className="w-6 h-6" />
+                                <span className="font-bold text-lg">RECOMMENDED:</span>
+                            </div>
+                            <span className="text-xl font-semibold">{topRecommendation.hospitalName}</span>
+                            <span className="bg-white/20 px-3 py-1 rounded-full text-sm font-medium">
+                                ETA: {topRecommendation.etaMinutes} min
+                            </span>
+                            <span className="bg-white/20 px-3 py-1 rounded-full text-sm font-medium">
+                                Score: {topRecommendation.suitabilityScore}%
+                            </span>
+                        </div>
+                        {goldenHourRemaining && (
+                            <div className="flex items-center gap-2 bg-red-500 px-4 py-2 rounded-lg animate-pulse">
+                                <Timer className="w-5 h-5" />
+                                <span className="font-bold">GOLDEN HOUR: {goldenHourRemaining}min</span>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* Header */}
+            <div className="bg-gray-800 border-b border-gray-700 px-6 py-4">
+                <div className="max-w-7xl mx-auto flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 bg-gradient-to-br from-red-500 to-orange-600 rounded-xl flex items-center justify-center">
+                            <Navigation className="w-6 h-6 text-white" />
+                        </div>
+                        <div>
+                            <h1 className="text-2xl font-bold text-white">Routing Intelligence Dashboard</h1>
+                            <p className="text-gray-400 text-sm">Real-time ambulance routing and hospital selection</p>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-4">
+                        {/* Routing State Indicator */}
+                        <div className={`flex items-center gap-2 px-4 py-2 rounded-lg ${routingState === "evaluating" ? "bg-yellow-500/20 text-yellow-400" :
+                            routingState === "hospital_selected" ? "bg-green-500/20 text-green-400" :
+                                "bg-gray-700 text-gray-400"
+                            }`}>
+                            <Activity className="w-4 h-4" />
+                            <span className="text-sm font-medium capitalize">{routingState.replace("_", " ")}</span>
+                        </div>
+
+                        {/* Compare Mode Toggle */}
+                        <button
+                            onClick={() => setShowCompareMode(!showCompareMode)}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${showCompareMode
+                                ? "bg-blue-600 text-white"
+                                : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                                }`}
+                        >
+                            <Layers className="w-4 h-4" />
+                            Compare Routes
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            {/* Main Content */}
+            <div className="flex-1 flex overflow-hidden">
+                {/* Map Container */}
+                <div className="flex-1 relative">
+                    <div
+                        ref={containerRef}
+                        className="w-full h-full"
+                        style={{ minHeight: "600px" }}
+                    />
+
+                    {/* Map Loading */}
+                    {!mapLoaded && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-gray-900/80">
+                            <div className="flex items-center gap-3 text-white">
+                                <RefreshCw className="w-6 h-6 animate-spin" />
+                                <span>Loading map...</span>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Legend */}
+                    <div className="absolute bottom-6 left-6 bg-gray-800/95 backdrop-blur rounded-xl border border-gray-700 p-4 shadow-xl">
+                        <h4 className="text-white font-medium mb-3 text-sm">Hospital Ranking</h4>
+                        <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                                <div className="w-4 h-4 rounded-full" style={{ background: MARKER_COLORS.top }}></div>
+                                <span className="text-gray-300 text-sm">#1 Recommended</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <div className="w-4 h-4 rounded-full" style={{ background: MARKER_COLORS.moderate }}></div>
+                                <span className="text-gray-300 text-sm">#2-3 Suitable</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <div className="w-4 h-4 rounded-full" style={{ background: MARKER_COLORS.low }}></div>
+                                <span className="text-gray-300 text-sm">#4+ Lower Priority</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <div className="w-4 h-4 rounded-full" style={{ background: MARKER_COLORS.disqualified }}></div>
+                                <span className="text-gray-300 text-sm">Disqualified</span>
+                            </div>
+                        </div>
+
+                        <div className="mt-4 pt-3 border-t border-gray-700">
+                            <h4 className="text-white font-medium mb-2 text-sm">Route Lines</h4>
+                            <div className="space-y-2">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-8 h-1 rounded" style={{ background: ROUTE_COLORS.primary }}></div>
+                                    <span className="text-gray-300 text-sm">Primary Route</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <div className="w-8 h-1 rounded" style={{ background: ROUTE_COLORS.secondary }}></div>
+                                    <span className="text-gray-300 text-sm">Secondary</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <div className="w-8 h-1 rounded" style={{ background: ROUTE_COLORS.tertiary }}></div>
+                                    <span className="text-gray-300 text-sm">Tertiary</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Loading Routes Indicator */}
+                    {isLoadingRoutes && (
+                        <div className="absolute top-6 left-6 bg-blue-500/20 border border-blue-500/50 text-blue-400 px-4 py-2 rounded-lg flex items-center gap-2">
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                            <span className="text-sm">Calculating routes...</span>
+                        </div>
+                    )}
+                </div>
+
+                {/* Right Panel - ETA & Hospital List */}
+                <div className="w-96 bg-gray-800 border-l border-gray-700 overflow-y-auto">
+                    {/* Case Selector */}
+                    {emergencyCases.length > 1 && (
+                        <div className="p-4 border-b border-gray-700">
+                            <label className="block text-gray-400 text-sm mb-2">Active Emergency</label>
+                            <select
+                                value={selectedCase?.id || ""}
+                                onChange={(e) => {
+                                    const c = emergencyCases.find(ec => ec.id === e.target.value);
+                                    setSelectedCase(c);
+                                    setSelectedHospital(null);
+                                }}
+                                className="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2"
+                            >
+                                {emergencyCases.map(c => (
+                                    <option key={c.id} value={c.id}>
+                                        {c.emergencyContext?.emergencyType || "Emergency"} - {c.patientName || "Unknown"}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
+
+                    {/* Selected Case Info */}
+                    {selectedCase && (
+                        <div className="p-4 border-b border-gray-700 bg-gray-750">
+                            <div className="flex items-center justify-between mb-3">
+                                <h3 className="font-semibold text-white flex items-center gap-2">
+                                    <AlertTriangle className="w-5 h-5 text-red-500" />
+                                    Active Emergency
+                                </h3>
+                                {goldenHourRemaining && (
+                                    <span className="bg-red-500 text-white text-xs px-2 py-1 rounded animate-pulse">
+                                        ⏱️ {goldenHourRemaining}m
+                                    </span>
+                                )}
+                            </div>
+                            <div className="grid grid-cols-2 gap-3 text-sm">
+                                <div>
+                                    <span className="text-gray-400">Type:</span>
+                                    <p className="text-white font-medium">{selectedCase.emergencyContext?.emergencyType || "Unknown"}</p>
+                                </div>
+                                <div>
+                                    <span className="text-gray-400">Acuity:</span>
+                                    <p className={`font-medium ${getAcuityLabel(selectedCase.acuityLevel).color.replace("bg-", "text-")}`}>
+                                        {getAcuityLabel(selectedCase.acuityLevel).text}
+                                    </p>
+                                </div>
+                                <div>
+                                    <span className="text-gray-400">Patient:</span>
+                                    <p className="text-white">{selectedCase.patientName || "Unknown"}</p>
+                                </div>
+                                <div>
+                                    <span className="text-gray-400">Time:</span>
+                                    <p className="text-white">{formatTimeSince(selectedCase.emergencyContext?.incidentTimestamp)}</p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Ranked Hospitals */}
+                    <div className="p-4">
+                        <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
+                            <Building2 className="w-5 h-5 text-blue-400" />
+                            Ranked Hospitals ({rankedHospitals.filter(h => !h.disqualified).length})
+                        </h3>
+
+                        <div className="space-y-3">
+                            {rankedHospitals.filter(h => !h.disqualified).slice(0, 5).map((hospital, index) => {
+                                const isSelected = selectedHospital?.hospitalId === hospital.hospitalId;
+                                const hospitalData = hospitals.find(h => h.id === hospital.hospitalId);
+
+                                return (
+                                    <div
+                                        key={hospital.hospitalId}
+                                        onClick={() => setSelectedHospital(hospital)}
+                                        className={`p-4 rounded-xl cursor-pointer transition-all ${isSelected
+                                            ? "bg-emerald-500/20 border-2 border-emerald-500"
+                                            : "bg-gray-700/50 border border-gray-600 hover:bg-gray-700"
+                                            }`}
+                                    >
+                                        <div className="flex items-start justify-between mb-2">
+                                            <div className="flex items-center gap-2">
+                                                <span
+                                                    className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold"
+                                                    style={{ background: getMarkerColor(index + 1, rankedHospitals.length) }}
+                                                >
+                                                    {index + 1}
+                                                </span>
+                                                <span className="font-medium text-white text-sm">{hospital.hospitalName}</span>
+                                            </div>
+                                            <ChevronRight className={`w-5 h-5 transition-transform ${isSelected ? "rotate-90 text-emerald-400" : "text-gray-500"}`} />
+                                        </div>
+
+                                        <div className="grid grid-cols-3 gap-2 text-center">
+                                            <div className="bg-gray-800/50 rounded-lg p-2">
+                                                <div className="text-lg font-bold text-white">{hospital.suitabilityScore}</div>
+                                                <div className="text-xs text-gray-400">Score</div>
+                                            </div>
+                                            <div className="bg-gray-800/50 rounded-lg p-2">
+                                                <div className="text-lg font-bold text-blue-400">{hospital.etaMinutes}</div>
+                                                <div className="text-xs text-gray-400">min</div>
+                                            </div>
+                                            <div className="bg-gray-800/50 rounded-lg p-2">
+                                                <div className="text-lg font-bold text-purple-400">{hospital.distanceKm}</div>
+                                                <div className="text-xs text-gray-400">km</div>
+                                            </div>
+                                        </div>
+
+                                        {isSelected && hospital.recommendationReasons && (
+                                            <div className="mt-3 pt-3 border-t border-gray-600">
+                                                <div className="text-xs text-gray-400 mb-2">Why this hospital:</div>
+                                                <div className="flex flex-wrap gap-1">
+                                                    {hospital.recommendationReasons.slice(0, 4).map((reason, i) => (
+                                                        <span key={i} className="bg-gray-600 text-gray-200 text-xs px-2 py-1 rounded">
+                                                            {reason}
+                                                        </span>
+                                                    ))}
+                                                </div>
+
+                                                {/* Score breakdown */}
+                                                <div className="mt-3 space-y-1">
+                                                    <div className="flex justify-between text-xs">
+                                                        <span className="text-gray-400">Capability</span>
+                                                        <span className="text-white">{hospital.scoreBreakdown?.capability || 0}</span>
+                                                    </div>
+                                                    <div className="flex justify-between text-xs">
+                                                        <span className="text-gray-400">Specialists</span>
+                                                        <span className="text-white">{hospital.scoreBreakdown?.specialists || 0}</span>
+                                                    </div>
+                                                    <div className="flex justify-between text-xs">
+                                                        <span className="text-gray-400">ICU Beds</span>
+                                                        <span className="text-white">{hospital.scoreBreakdown?.icuCount || 0}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {/* Disqualified Hospitals */}
+                        {rankedHospitals.filter(h => h.disqualified).length > 0 && (
+                            <div className="mt-6">
+                                <h4 className="text-gray-400 text-sm mb-3 flex items-center gap-2">
+                                    <XCircle className="w-4 h-4" />
+                                    Disqualified ({rankedHospitals.filter(h => h.disqualified).length})
+                                </h4>
+                                <div className="space-y-2">
+                                    {rankedHospitals.filter(h => h.disqualified).slice(0, 3).map(hospital => (
+                                        <div
+                                            key={hospital.hospitalId}
+                                            className="p-3 bg-gray-700/30 rounded-lg border border-gray-700"
+                                        >
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-gray-400 text-sm">{hospital.hospitalName}</span>
+                                                <span className="text-red-400 text-xs">{hospital.distanceKm} km</span>
+                                            </div>
+                                            <div className="text-red-400/70 text-xs mt-1">
+                                                {hospital.disqualifyReasons?.[0] || "Disqualified"}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {/* CSS for animations */}
+            <style>{`
+        @keyframes ping {
+          75%, 100% {
+            transform: scale(2);
+            opacity: 0;
+          }
+        }
+        .animate-ping {
+          animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+        }
+      `}</style>
+        </div>
+    );
+}
