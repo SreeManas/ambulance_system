@@ -17,3 +17,5 @@ dist/
 
 # legacy files (archived)
 src/legacy_incois_disaster/
+server/.env
+server/serviceAccountKey.json

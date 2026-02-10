@@ -9,7 +9,7 @@ export default function LoginForm() {
   const [mode, setMode] = useState('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [demoRole, setDemoRole] = useState('citizen');
+  const [demoRole, setDemoRole] = useState('paramedic');
   const [msg, setMsg] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -99,7 +99,7 @@ export default function LoginForm() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
           </svg>
         </div>
-        <div className="text-2xl font-bold text-gray-900 mb-2">Demo Auth</div>
+        <div className="text-2xl font-bold text-gray-900 mb-2">Authorization</div>
         <div className="text-gray-600">Access your EMS Router account</div>
       </div>
 
@@ -108,8 +108,8 @@ export default function LoginForm() {
         <button
           type="button"
           className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300 ${mode === 'login'
-              ? 'bg-white text-blue-600 shadow-md'
-              : 'text-gray-600 hover:text-gray-900'
+            ? 'bg-white text-blue-600 shadow-md'
+            : 'text-gray-600 hover:text-gray-900'
             }`}
           onClick={() => setMode('login')}
         >
@@ -118,8 +118,8 @@ export default function LoginForm() {
         <button
           type="button"
           className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300 ${mode === 'register'
-              ? 'bg-white text-blue-600 shadow-md'
-              : 'text-gray-600 hover:text-gray-900'
+            ? 'bg-white text-blue-600 shadow-md'
+            : 'text-gray-600 hover:text-gray-900'
             }`}
           onClick={() => setMode('register')}
         >
@@ -208,9 +208,11 @@ export default function LoginForm() {
               onChange={(e) => setDemoRole(e.target.value)}
               disabled={loading}
             >
-              <option value="citizen">👤 Citizen</option>
-              <option value="analyst">📊 Analyst</option>
-              <option value="official">🏛️ Official</option>
+              <option value="paramedic">🚑 Paramedic / Ambulance Crew</option>
+              <option value="hospital_admin">🏥 Hospital Administrator</option>
+              <option value="command_center">🎯 Command Center Operator</option>
+              <option value="dispatcher">📡 Dispatcher</option>
+              <option value="admin">⚙️ System Administrator</option>
             </select>
           </div>
         )}

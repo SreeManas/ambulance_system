@@ -1,20 +1,30 @@
 import React, { useState, useCallback } from "react";
 import { BrowserRouter, Routes, Route, Link, NavLink } from "react-router-dom";
+import "./styles/responsiveUtils.css";
+import "./styles/rtl.css";
 
 // === HEALTHCARE CORE ===
 import RoutingDashboard from "./components/RoutingDashboard.jsx";
 import CommandCenterDashboard from "./components/CommandCenterDashboard.jsx";
 import PatientVitalsForm from "./components/PatientVitalsForm.jsx";
 import HospitalDashboard from "./components/HospitalDashboard.jsx";
+import RealTimeHospitalCapability from "./components/RealTimeHospitalCapability.jsx";
+import AmbulanceNavigation from "./components/navigation/AmbulanceNavigation.jsx";
+import AmbulanceTrackingViewer from "./components/tracking/AmbulanceTrackingViewer.jsx";
+import AppErrorBoundary from "./components/AppErrorBoundary.jsx";
+import EMSChatAssistant from "./components/ai/EMSChatAssistant.jsx";
 
 // === SHARED COMPONENTS ===
 import RealTimeStatusIndicator from "./components/RealTimeStatusIndicator.jsx";
 import FeedbackForm from "./components/FeedbackForm.jsx";
 import LanguageSwitcher from "./components/LanguageSwitcher.jsx";
+import NetworkStatusBanner from "./components/shared/NetworkStatusBanner.jsx";
 
 // === AUTH & INFRASTRUCTURE ===
 import AuthProvider, { useAuth } from "./components/auth/AuthProvider.jsx";
 import PermissionGuard from "./components/auth/PermissionGuard.jsx";
+import ProtectedRoute from "./components/auth/ProtectedRoute.jsx";
+import NotAuthorized from "./components/auth/NotAuthorized.jsx";
 import LoginForm from "./components/auth/LoginForm.jsx";
 import { LanguageProvider } from "./context/LanguageContext.jsx";
 import { useT } from "./hooks/useT.js";
@@ -36,11 +46,14 @@ const Nav = () => {
   const tWelcome = useT("Welcome");
   const tRole = useT("Role");
 
+  const tLiveCapacity = useT("Live Capacity");
+
   const navigationItems = [
     { to: "/routing", label: tRouting, icon: "🗺️" },
     { to: "/command-center", label: tCommandCenter, icon: "🚑" },
     { to: "/intake", label: tPatientIntake, icon: "📝" },
     { to: "/hospitals", label: tHospitals, icon: "🏥" },
+    { to: "/live-capacity", label: tLiveCapacity, icon: "📊" },
     { to: "/feedback", label: tFeedback, icon: "💬" },
   ];
 
@@ -246,6 +259,7 @@ export default function App() {
       <LanguageProvider>
         <AuthProvider>
           <div className="min-h-screen bg-gray-50 flex flex-col">
+            <NetworkStatusBanner />
             <Nav />
 
             {/* Main Content Area */}
@@ -253,17 +267,50 @@ export default function App() {
               <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
                 <Routes>
                   {/* Default Route - Routing Dashboard */}
-                  <Route path="/" element={<RoutingDashboard />} />
+                  <Route path="/" element={<AppErrorBoundary><RoutingDashboard /></AppErrorBoundary>} />
 
-                  {/* Healthcare Core Routes */}
-                  <Route path="/routing" element={<RoutingDashboard />} />
-                  <Route path="/command-center" element={<CommandCenterDashboard />} />
-                  <Route path="/intake" element={
-                    <div className="max-w-4xl mx-auto animate-fadeIn">
-                      <PatientVitalsForm />
-                    </div>
+                  {/* Healthcare Core Routes - Role Protected */}
+                  <Route path="/routing" element={
+                    <ProtectedRoute><AppErrorBoundary><RoutingDashboard /></AppErrorBoundary></ProtectedRoute>
                   } />
-                  <Route path="/hospitals" element={<HospitalDashboard />} />
+                  <Route path="/command-center" element={
+                    <ProtectedRoute><AppErrorBoundary><CommandCenterDashboard /></AppErrorBoundary></ProtectedRoute>
+                  } />
+                  <Route path="/intake" element={
+                    <ProtectedRoute>
+                      <AppErrorBoundary>
+                        <div className="max-w-4xl mx-auto animate-fadeIn">
+                          <PatientVitalsForm />
+                        </div>
+                      </AppErrorBoundary>
+                    </ProtectedRoute>
+                  } />
+                  <Route path="/hospitals" element={
+                    <ProtectedRoute><AppErrorBoundary><HospitalDashboard /></AppErrorBoundary></ProtectedRoute>
+                  } />
+                  <Route path="/live-capacity" element={
+                    <ProtectedRoute>
+                      <AppErrorBoundary>
+                        <div className="max-w-7xl mx-auto animate-fadeIn">
+                          <RealTimeHospitalCapability />
+                        </div>
+                      </AppErrorBoundary>
+                    </ProtectedRoute>
+                  } />
+
+                  {/* Navigation & Tracking Routes */}
+                  <Route path="/navigate" element={
+                    <ProtectedRoute>
+                      <AppErrorBoundary>
+                        <AmbulanceNavigation />
+                      </AppErrorBoundary>
+                    </ProtectedRoute>
+                  } />
+                  <Route path="/track/:ambulanceId" element={
+                    <AppErrorBoundary>
+                      <AmbulanceTrackingViewer />
+                    </AppErrorBoundary>
+                  } />
 
                   {/* Shared Routes */}
                   <Route path="/feedback" element={
@@ -275,6 +322,9 @@ export default function App() {
                       <FeedbackForm />
                     </div>
                   } />
+
+                  {/* Authorization Route */}
+                  <Route path="/not-authorized" element={<NotAuthorized />} />
 
                   {/* Auth Routes */}
                   <Route path="/login" element={
@@ -342,6 +392,9 @@ export default function App() {
                 </div>
               </div>
             </footer>
+
+            {/* AI Copilot Chat Widget */}
+            <EMSChatAssistant />
           </div>
         </AuthProvider>
       </LanguageProvider>
