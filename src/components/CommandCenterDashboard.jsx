@@ -20,6 +20,9 @@ import {
     Play, Pause, RotateCcw, Zap, Users, ChevronRight, MapPin,
     Radio, Signal, Target, Gauge, Clock, ArrowRight, Phone
 } from "lucide-react";
+import { useMapResize } from "../hooks/useMapResize";
+import { useTPreload, useTBatch } from "../hooks/useT";
+import { PRELOAD_COMMAND_CENTER } from "../constants/translationKeys";
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN || "";
 
@@ -153,7 +156,29 @@ function getNextStatus(currentStatus) {
 // MAIN COMPONENT
 // =============================================================================
 
+const CMD_LABELS = [
+    "Command Center", "EMS Operations Control", "Available", "Active", "Total",
+    "Unassigned", "Pause", "Start", "Reset", "Ambulance Status",
+    "Cases", "Fleet", "Hospitals", "Emergency Queue", "Dispatch",
+    "Ambulance Fleet", "Hospital Status", "Ambulance Details",
+    "Vehicle:", "Type:", "Status:", "Dispatch to Next Case",
+    "General", "Queue"
+];
+
 export default function CommandCenterDashboard() {
+    // Phase 10: Preload translations for this dashboard
+    useTPreload(PRELOAD_COMMAND_CENTER);
+
+    // Phase 5: Batch translate all static UI labels
+    const { translated: ct } = useTBatch(CMD_LABELS);
+    const C = {
+        commandCenter: ct[0], emsControl: ct[1], available: ct[2], active: ct[3], total: ct[4],
+        unassigned: ct[5], pause: ct[6], start: ct[7], reset: ct[8], ambulanceStatus: ct[9],
+        cases: ct[10], fleet: ct[11], hospitals: ct[12], emergencyQueue: ct[13], dispatch: ct[14],
+        ambulanceFleet: ct[15], hospitalStatus: ct[16], ambulanceDetails: ct[17],
+        vehicle: ct[18], type: ct[19], status: ct[20], dispatchNext: ct[21],
+        general: ct[22], queue: ct[23]
+    };
     const mapRef = useRef(null);
     const containerRef = useRef(null);
     const markersRef = useRef({});
@@ -264,6 +289,9 @@ export default function CommandCenterDashboard() {
             }
         };
     }, []);
+
+    // Map Resize Handler (Responsive + Orientation Support)
+    useMapResize(mapRef.current);
 
     // =============================================================================
     // ROUTE FETCHING
@@ -590,8 +618,8 @@ export default function CommandCenterDashboard() {
                                 <Radio className="w-6 h-6 text-white" />
                             </div>
                             <div>
-                                <h1 className="text-xl font-bold text-white">Command Center</h1>
-                                <p className="text-xs text-gray-400">EMS Operations Control</p>
+                                <h1 className="text-xl font-bold text-white">{C.commandCenter}</h1>
+                                <p className="text-xs text-gray-400">{C.emsControl}</p>
                             </div>
                         </div>
 
@@ -599,22 +627,22 @@ export default function CommandCenterDashboard() {
                         <div className="flex items-center gap-3 ml-6 px-4 py-2 bg-gray-800 rounded-lg border border-gray-700">
                             <div className="flex items-center gap-2">
                                 <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                                <span className="text-green-400 text-sm font-medium">{fleetStats.available} Available</span>
+                                <span className="text-green-400 text-sm font-medium">{fleetStats.available} {C.available}</span>
                             </div>
                             <div className="w-px h-4 bg-gray-600"></div>
                             <div className="flex items-center gap-2">
                                 <div className="w-2 h-2 rounded-full bg-orange-500 animate-pulse"></div>
-                                <span className="text-orange-400 text-sm font-medium">{fleetStats.active} Active</span>
+                                <span className="text-orange-400 text-sm font-medium">{fleetStats.active} {C.active}</span>
                             </div>
                             <div className="w-px h-4 bg-gray-600"></div>
-                            <span className="text-gray-400 text-sm">{fleetStats.total} Total</span>
+                            <span className="text-gray-400 text-sm">{fleetStats.total} {C.total}</span>
                         </div>
 
                         {/* Unassigned Cases Alert */}
                         {unassignedCases.length > 0 && (
                             <div className="flex items-center gap-2 px-3 py-2 bg-red-500/20 border border-red-500/50 rounded-lg animate-pulse">
                                 <AlertTriangle className="w-4 h-4 text-red-400" />
-                                <span className="text-red-400 text-sm font-medium">{unassignedCases.length} Unassigned</span>
+                                <span className="text-red-400 text-sm font-medium">{unassignedCases.length} {C.unassigned}</span>
                             </div>
                         )}
                     </div>
@@ -638,12 +666,12 @@ export default function CommandCenterDashboard() {
                         <button
                             onClick={() => setIsSimulationRunning(!isSimulationRunning)}
                             className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${isSimulationRunning
-                                    ? "bg-yellow-500 text-black hover:bg-yellow-400"
-                                    : "bg-green-600 text-white hover:bg-green-500"
+                                ? "bg-yellow-500 text-black hover:bg-yellow-400"
+                                : "bg-green-600 text-white hover:bg-green-500"
                                 }`}
                         >
                             {isSimulationRunning ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                            {isSimulationRunning ? "Pause" : "Start"}
+                            {isSimulationRunning ? C.pause : C.start}
                         </button>
 
                         <button
@@ -651,7 +679,7 @@ export default function CommandCenterDashboard() {
                             className="flex items-center gap-2 px-4 py-2 bg-gray-700 text-gray-300 rounded-lg hover:bg-gray-600 transition-colors"
                         >
                             <RotateCcw className="w-4 h-4" />
-                            Reset
+                            {C.reset}
                         </button>
 
                         <div className="flex items-center gap-2 px-3 py-2 bg-gray-800 rounded-lg border border-gray-700">
@@ -666,11 +694,11 @@ export default function CommandCenterDashboard() {
             <div className="flex-1 flex overflow-hidden">
                 {/* Map Container */}
                 <div className="flex-1 relative">
-                    <div ref={containerRef} className="w-full h-full" />
+                    <div ref={containerRef} className="map-container" />
 
                     {/* Legend */}
                     <div className="absolute bottom-4 left-4 bg-gray-800/95 backdrop-blur rounded-xl border border-gray-700 p-3 shadow-xl">
-                        <h4 className="text-white font-medium mb-2 text-xs">Ambulance Status</h4>
+                        <h4 className="text-white font-medium mb-2 text-xs">{C.ambulanceStatus}</h4>
                         <div className="space-y-1">
                             {Object.entries(AMBULANCE_STATUSES).slice(0, 4).map(([key, val]) => (
                                 <div key={key} className="flex items-center gap-2">
@@ -687,16 +715,16 @@ export default function CommandCenterDashboard() {
                     {/* Panel Tabs */}
                     <div className="flex border-b border-gray-700">
                         {[
-                            { id: "cases", label: "Cases", icon: AlertTriangle },
-                            { id: "fleet", label: "Fleet", icon: Truck },
-                            { id: "hospitals", label: "Hospitals", icon: Building2 }
+                            { id: "cases", label: C.cases, icon: AlertTriangle },
+                            { id: "fleet", label: C.fleet, icon: Truck },
+                            { id: "hospitals", label: C.hospitals, icon: Building2 }
                         ].map(tab => (
                             <button
                                 key={tab.id}
                                 onClick={() => setActivePanel(tab.id)}
                                 className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${activePanel === tab.id
-                                        ? "bg-gray-700 text-white border-b-2 border-blue-500"
-                                        : "text-gray-400 hover:text-white hover:bg-gray-700/50"
+                                    ? "bg-gray-700 text-white border-b-2 border-blue-500"
+                                    : "text-gray-400 hover:text-white hover:bg-gray-700/50"
                                     }`}
                             >
                                 <tab.icon className="w-4 h-4" />
@@ -710,7 +738,7 @@ export default function CommandCenterDashboard() {
                         {/* Cases Panel */}
                         {activePanel === "cases" && (
                             <div className="space-y-3">
-                                <h3 className="text-white font-medium mb-3">Emergency Queue ({emergencyCases.length})</h3>
+                                <h3 className="text-white font-medium mb-3">{C.emergencyQueue} ({emergencyCases.length})</h3>
 
                                 {emergencyCases.map(ec => {
                                     const assignedAmb = ambulances.find(a => a.assignedCaseId === ec.id);
@@ -721,8 +749,8 @@ export default function CommandCenterDashboard() {
                                             key={ec.id}
                                             onClick={() => setSelectedCase(ec)}
                                             className={`p-3 rounded-lg border cursor-pointer transition-all ${selectedCase?.id === ec.id
-                                                    ? "bg-blue-500/20 border-blue-500"
-                                                    : "bg-gray-700/50 border-gray-600 hover:bg-gray-700"
+                                                ? "bg-blue-500/20 border-blue-500"
+                                                : "bg-gray-700/50 border-gray-600 hover:bg-gray-700"
                                                 }`}
                                         >
                                             <div className="flex items-center justify-between mb-2">
@@ -747,7 +775,7 @@ export default function CommandCenterDashboard() {
                                                         }}
                                                         className="px-2 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-500"
                                                     >
-                                                        Dispatch
+                                                        {C.dispatch}
                                                     </button>
                                                 )}
                                             </div>
@@ -760,7 +788,7 @@ export default function CommandCenterDashboard() {
                         {/* Fleet Panel */}
                         {activePanel === "fleet" && (
                             <div className="space-y-3">
-                                <h3 className="text-white font-medium mb-3">Ambulance Fleet ({ambulances.length})</h3>
+                                <h3 className="text-white font-medium mb-3">{C.ambulanceFleet} ({ambulances.length})</h3>
 
                                 {ambulances.map(amb => {
                                     const statusConfig = AMBULANCE_STATUSES[amb.status];
@@ -771,8 +799,8 @@ export default function CommandCenterDashboard() {
                                             key={amb.id}
                                             onClick={() => setSelectedAmbulance(amb)}
                                             className={`p-3 rounded-lg border cursor-pointer transition-all ${selectedAmbulance?.id === amb.id
-                                                    ? "bg-blue-500/20 border-blue-500"
-                                                    : "bg-gray-700/50 border-gray-600 hover:bg-gray-700"
+                                                ? "bg-blue-500/20 border-blue-500"
+                                                : "bg-gray-700/50 border-gray-600 hover:bg-gray-700"
                                                 }`}
                                         >
                                             <div className="flex items-center justify-between mb-2">
@@ -816,7 +844,7 @@ export default function CommandCenterDashboard() {
                         {/* Hospitals Panel */}
                         {activePanel === "hospitals" && (
                             <div className="space-y-3">
-                                <h3 className="text-white font-medium mb-3">Hospital Status ({hospitals.length})</h3>
+                                <h3 className="text-white font-medium mb-3">{C.hospitalStatus} ({hospitals.length})</h3>
 
                                 {hospitals.map(h => {
                                     const beds = h.capacity?.bedsByType || {};
@@ -845,11 +873,11 @@ export default function CommandCenterDashboard() {
                                                 </div>
                                                 <div className="bg-gray-800 rounded p-2">
                                                     <div className="text-white font-bold">{beds.general?.available || 0}</div>
-                                                    <div className="text-gray-400 text-xs">General</div>
+                                                    <div className="text-gray-400 text-xs">{C.general}</div>
                                                 </div>
                                                 <div className="bg-gray-800 rounded p-2">
                                                     <div className="text-white font-bold">{h.emergencyReadiness?.queueLength || 0}</div>
-                                                    <div className="text-gray-400 text-xs">Queue</div>
+                                                    <div className="text-gray-400 text-xs">{C.queue}</div>
                                                 </div>
                                             </div>
                                         </div>
@@ -863,7 +891,7 @@ export default function CommandCenterDashboard() {
                     {selectedAmbulance && (
                         <div className="border-t border-gray-700 p-4 bg-gray-750">
                             <div className="flex items-center justify-between mb-3">
-                                <h4 className="text-white font-medium">Ambulance Details</h4>
+                                <h4 className="text-white font-medium">{C.ambulanceDetails}</h4>
                                 <button
                                     onClick={() => setSelectedAmbulance(null)}
                                     className="text-gray-400 hover:text-white"
@@ -871,15 +899,15 @@ export default function CommandCenterDashboard() {
                             </div>
                             <div className="space-y-2 text-sm">
                                 <div className="flex justify-between">
-                                    <span className="text-gray-400">Vehicle:</span>
+                                    <span className="text-gray-400">{C.vehicle}</span>
                                     <span className="text-white">{selectedAmbulance.vehicleNumber}</span>
                                 </div>
                                 <div className="flex justify-between">
-                                    <span className="text-gray-400">Type:</span>
+                                    <span className="text-gray-400">{C.type}</span>
                                     <span className="text-white">{selectedAmbulance.type}</span>
                                 </div>
                                 <div className="flex justify-between">
-                                    <span className="text-gray-400">Status:</span>
+                                    <span className="text-gray-400">{C.status}</span>
                                     <span className="text-white">{AMBULANCE_STATUSES[selectedAmbulance.status].label}</span>
                                 </div>
                                 {selectedAmbulance.status === "available" && (
@@ -890,7 +918,7 @@ export default function CommandCenterDashboard() {
                                         }}
                                         className="w-full mt-2 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-500"
                                     >
-                                        Dispatch to Next Case
+                                        {C.dispatchNext}
                                     </button>
                                 )}
                             </div>

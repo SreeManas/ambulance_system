@@ -1,79 +1,107 @@
 // src/context/LanguageContext.jsx
-import React, { createContext, useState, useEffect } from "react";
-import { translateText, translateTexts } from "../utils/translateService";
+// Enhanced Language Context — Phases 8 (Persistence) + 9 (RTL) + ~130 Languages
+import React, { createContext, useState, useEffect, useCallback, useMemo } from "react";
+import { translateText, translateTexts, preloadTranslations } from "../utils/translateService";
+import { createLanguageMap, isRTL, SUPPORTED_LANGUAGES } from "../constants/languages";
 
 export const LanguageContext = createContext();
 
-const SUPPORTED_LANGS = {
-  en: "English",
-  hi: "हिन्दी", // Hindi
-  te: "తెలుగు", // Telugu
-  ta: "தமிழ்", // Tamil
-  ml: "മലയാളം", // Malayalam
-  bn: "বাংলা", // Bengali
-  gu: "ગુજરાતી", // Gujarati
-  kn: "ಕನ್ನಡ", // Kannada
-  or: "ଓଡ଼ିଆ", // Odia
-  pa: "ਪੰਜਾਬੀ" // Punjabi
-};
+// Build language map from full list (~130 languages)
+const SUPPORTED_LANGS = createLanguageMap();
+
+// Persistence key
+const STORAGE_KEY = "ems_language";
 
 export function LanguageProvider({ children }) {
-  const [lang, setLang] = useState(() => {
-    // Try to get from localStorage first, fallback to browser language, then English
-    const savedLang = localStorage.getItem("lang");
-    if (savedLang && SUPPORTED_LANGS[savedLang]) {
-      return savedLang;
-    }
-    
-    // Try to detect browser language
+  // ─── Phase 8: Persistent Language Preference ──────────
+  const [lang, setLangState] = useState(() => {
+    // 1. Try persisted preference
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved && SUPPORTED_LANGS[saved]) return saved;
+
+    // 2. Try browser language detection
     const browserLang = navigator.language.split('-')[0];
-    if (SUPPORTED_LANGS[browserLang]) {
-      return browserLang;
-    }
-    
+    if (SUPPORTED_LANGS[browserLang]) return browserLang;
+
+    // 3. Default to English
     return "en";
   });
 
   const [isTranslating, setIsTranslating] = useState(false);
 
+  // Persist on every change
   useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, lang);
+    // Also keep backward-compatible key
     localStorage.setItem("lang", lang);
   }, [lang]);
 
-  const translateUI = async (text) => {
+  // ─── Phase 9: RTL Layout Support ──────────────────────
+  useEffect(() => {
+    const rtl = isRTL(lang);
+    document.documentElement.dir = rtl ? "rtl" : "ltr";
+    document.body.dir = rtl ? "rtl" : "ltr";
+
+    // Toggle a CSS class for RTL-specific overrides
+    if (rtl) {
+      document.documentElement.classList.add("rtl-active");
+    } else {
+      document.documentElement.classList.remove("rtl-active");
+    }
+  }, [lang]);
+
+  // ─── Translation Functions ────────────────────────────
+  const translateUI = useCallback(async (text) => {
     if (lang === "en") return text;
     return await translateText(text, lang);
-  };
+  }, [lang]);
 
-  const translateUIBatch = async (texts) => {
+  const translateUIBatch = useCallback(async (texts) => {
     if (lang === "en") return texts;
     setIsTranslating(true);
     try {
-      const results = await translateTexts(texts, lang);
-      return results;
+      return await translateTexts(texts, lang);
     } finally {
       setIsTranslating(false);
     }
-  };
+  }, [lang]);
 
-  const changeLanguage = (newLang) => {
+  // ─── Phase 10: Preload helper exposed to consumers ───
+  const preloadUI = useCallback(async (textArray) => {
+    if (lang === "en") return;
+    return await preloadTranslations(textArray, lang);
+  }, [lang]);
+
+  // ─── Language Change (validates against full list) ────
+  const setLang = useCallback((newLang) => {
     if (SUPPORTED_LANGS[newLang]) {
-      setLang(newLang);
+      setLangState(newLang);
     }
-  };
+  }, []);
 
-  const value = {
+  // ─── Context Value (memoized to prevent re-renders) ──
+  const value = useMemo(() => ({
     lang,
-    setLang: changeLanguage,
+    setLang,
     translateUI,
     translateUIBatch,
+    preloadUI,
     isTranslating,
-    SUPPORTED_LANGS
-  };
+    isRTL: isRTL(lang),
+    SUPPORTED_LANGS,
+    SUPPORTED_LANGUAGES,
+  }), [lang, setLang, translateUI, translateUIBatch, preloadUI, isTranslating]);
 
   return (
     <LanguageContext.Provider value={value}>
       {children}
     </LanguageContext.Provider>
   );
+}
+
+// Convenience hook
+export function useLanguage() {
+  const ctx = React.useContext(LanguageContext);
+  if (!ctx) throw new Error("useLanguage must be used within LanguageProvider");
+  return ctx;
 }

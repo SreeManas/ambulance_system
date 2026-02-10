@@ -12,7 +12,7 @@
  */
 
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, addDoc, serverTimestamp, deleteDoc, getDocs } from 'firebase/firestore';
+import { getFirestore, collection, addDoc, serverTimestamp, deleteDoc, getDocs, doc, setDoc } from 'firebase/firestore';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -55,6 +55,115 @@ function randomLocation(center, radiusKm = 15) {
         longitude: center[0] + x
     };
 }
+
+// =============================================================================
+// REALISTIC DATA GENERATORS (Sprint-2)
+// =============================================================================
+
+function randomInt(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function randomAvailable(total, minAvail, maxAvail) {
+    const available = randomInt(minAvail, maxAvail);
+    return Math.min(available, total);
+}
+
+function generateBedAvailability() {
+    const total = randomInt(100, 800);
+    const available = randomAvailable(total, 20, 200);
+    const icuTotal = randomInt(10, 60);
+    const emergencyTotal = randomInt(20, 80);
+    const traumaTotal = randomInt(10, 40);
+    const isolationTotal = randomInt(5, 20);
+    const pediatricTotal = randomInt(5, 25);
+
+    return {
+        total,
+        available,
+        icu: { total: icuTotal, available: randomAvailable(icuTotal, 2, 15) },
+        emergency: { total: emergencyTotal, available: randomAvailable(emergencyTotal, 5, 25) },
+        traumaBeds: { total: traumaTotal, available: randomAvailable(traumaTotal, 2, 12) },
+        isolationBeds: { total: isolationTotal, available: randomAvailable(isolationTotal, 1, 6) },
+        pediatricBeds: { total: pediatricTotal, available: randomAvailable(pediatricTotal, 1, 8) }
+    };
+}
+
+function generateSpecialists() {
+    return {
+        traumaSurgeon: { count: randomInt(2, 12), available: randomInt(1, 6) },
+        cardiologist: { count: randomInt(2, 10), available: randomInt(1, 5) },
+        neurologist: { count: randomInt(1, 6), available: randomInt(1, 3) },
+        orthopedicSurgeon: { count: randomInt(1, 8), available: randomInt(1, 4) },
+        burnSpecialist: { count: randomInt(0, 4), available: randomInt(0, 2) },
+        pediatrician: { count: randomInt(2, 8), available: randomInt(1, 4) },
+        pulmonologist: { count: randomInt(1, 5), available: randomInt(1, 3) },
+        radiologist: { count: randomInt(2, 6), available: randomInt(1, 3) }
+    };
+}
+
+function generateEquipment() {
+    const ventTotal = randomInt(5, 30);
+    const defibTotal = randomInt(2, 10);
+    const dialysisTotal = randomInt(1, 6);
+    const ctTotal = randomInt(1, 4);
+    const mriTotal = randomInt(1, 3);
+    const xrayTotal = randomInt(2, 10);
+
+    return {
+        ventilators: { total: ventTotal, available: randomAvailable(ventTotal, 2, 15) },
+        defibrillators: { total: defibTotal, available: randomAvailable(defibTotal, 1, 6) },
+        dialysisMachines: { total: dialysisTotal, available: randomAvailable(dialysisTotal, 0, 3) },
+        ctScanners: { total: ctTotal, available: randomAvailable(ctTotal, 0, 2) },
+        mriMachines: { total: mriTotal, available: randomAvailable(mriTotal, 0, 2) },
+        xrayMachines: { total: xrayTotal, available: randomAvailable(xrayTotal, 1, 6) }
+    };
+}
+
+function generateEmergencyReadiness() {
+    const statuses = ['accepting', 'accepting', 'accepting', 'diverting', 'full'];
+    const status = statuses[randomInt(0, statuses.length - 1)];
+    return {
+        status,
+        diversionStatus: status === 'diverting',
+        ambulanceQueue: randomInt(0, 12),
+        acceptingCases: status !== 'full',
+        avgWaitTime: randomInt(5, 45)
+    };
+}
+
+function generateCaseAcceptance() {
+    const acceptance = {
+        acceptsTrauma: Math.random() > 0.2,
+        acceptsCardiac: Math.random() > 0.2,
+        acceptsBurns: Math.random() > 0.5,
+        acceptsPediatric: Math.random() > 0.3,
+        acceptsInfectious: Math.random() > 0.4
+    };
+    // Ensure at least one is true
+    if (!Object.values(acceptance).some(v => v)) {
+        acceptance.acceptsTrauma = true;
+    }
+    return acceptance;
+}
+
+function generateExtendedProfile() {
+    const accreditations = ['NABH', 'JCI', 'ISO 9001', 'NABL'];
+    const certifications = ['ACS Verified Trauma Center', 'Stroke Certified', 'Cardiac Care Certified', 'Burn Center Verified'];
+    const insuranceList = ['Star Health', 'ICICI Lombard', 'Max Bupa', 'HDFC Ergo', 'New India Assurance', 'Bajaj Allianz'];
+    const programs = ['24/7 Emergency', 'Air Ambulance Network', 'Telemedicine Support', 'Mobile ICU', 'Disaster Response Team'];
+
+    return {
+        accreditation: accreditations.filter(() => Math.random() > 0.5),
+        traumaCertifications: certifications.filter(() => Math.random() > 0.6),
+        insurancePartners: insuranceList.filter(() => Math.random() > 0.4),
+        emergencyCoordinators: [
+            { name: `Dr. ${['Sharma', 'Patel', 'Reddy', 'Kumar', 'Singh'][randomInt(0, 4)]}`, phone: `+91-98${randomInt(10000000, 99999999)}` }
+        ],
+        specialPrograms: programs.filter(() => Math.random() > 0.5)
+    };
+}
+
 
 const HOSPITALS = [
     {
@@ -778,27 +887,89 @@ const EMERGENCY_CASES = [
 // SEED FUNCTIONS
 // =============================================================================
 
+// =============================================================================
+// DEMO USERS FOR RBAC
+// =============================================================================
+
+const DEMO_USERS = [
+    {
+        uid: 'demo-paramedic-001',
+        name: 'Raj Kumar',
+        email: 'paramedic@ems-demo.com',
+        role: 'paramedic',
+        organization: 'Bangalore EMS Unit 1',
+    },
+    {
+        uid: 'demo-dispatcher-001',
+        name: 'Priya Sharma',
+        email: 'dispatcher@ems-demo.com',
+        role: 'dispatcher',
+        organization: 'Central Command Center',
+    },
+    {
+        uid: 'demo-hospital-admin-001',
+        name: 'Dr. Anil Mehta',
+        email: 'hospital@ems-demo.com',
+        role: 'hospital_admin',
+        organization: 'Apollo Hospital Bangalore',
+    },
+    {
+        uid: 'demo-admin-001',
+        name: 'System Administrator',
+        email: 'admin@ems-demo.com',
+        role: 'admin',
+        organization: 'EMS Router Platform',
+    }
+];
+
 async function clearCollection(collectionName) {
     console.log(`🗑️  Clearing ${collectionName} collection...`);
     const snapshot = await getDocs(collection(db, collectionName));
-    const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
+    const deletePromises = snapshot.docs.map(d => deleteDoc(d.ref));
     await Promise.all(deletePromises);
     console.log(`✅ Cleared ${snapshot.size} documents from ${collectionName}`);
 }
 
-async function seedHospitals() {
-    console.log('\n🏥 Seeding hospitals...');
+async function seedUsers() {
+    console.log('\n👤 Seeding demo users for RBAC...');
 
-    for (const hospital of HOSPITALS) {
-        const docRef = await addDoc(collection(db, 'hospitals'), {
-            ...hospital,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp()
+    for (const user of DEMO_USERS) {
+        await setDoc(doc(db, 'users', user.uid), {
+            ...user,
+            createdAt: serverTimestamp()
         });
-        console.log(`  ✓ Added ${hospital.basicInfo.name} (${docRef.id})`);
+        console.log(`  ✓ Added ${user.role}: ${user.email}`);
     }
 
-    console.log(`✅ Seeded ${HOSPITALS.length} hospitals`);
+    console.log(`✅ Seeded ${DEMO_USERS.length} demo users`);
+}
+
+async function seedHospitals() {
+    console.log('\n🏥 Seeding hospitals with realistic data...');
+
+    for (const hospital of HOSPITALS) {
+        // Generate realistic data using Sprint-2 generators
+        const realisticData = {
+            ...hospital,
+            // Override static data with dynamically generated realistic values
+            bedAvailability: generateBedAvailability(),
+            specialists: generateSpecialists(),
+            equipment: generateEquipment(),
+            caseAcceptance: generateCaseAcceptance(),
+            emergencyReadiness: generateEmergencyReadiness(),
+            extendedProfile: generateExtendedProfile(),
+            capacityLastUpdated: serverTimestamp(),
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+        };
+
+        const docRef = await addDoc(collection(db, 'hospitals'), realisticData);
+        console.log(`  ✓ Added ${hospital.basicInfo.name} (${docRef.id})`);
+        console.log(`    Beds: ${realisticData.bedAvailability.total} total, ${realisticData.bedAvailability.available} available`);
+        console.log(`    ICU: ${realisticData.bedAvailability.icu.total}/${realisticData.bedAvailability.icu.available}`);
+    }
+
+    console.log(`✅ Seeded ${HOSPITALS.length} hospitals with realistic capacity data`);
 }
 
 async function seedAmbulances() {
@@ -846,12 +1017,14 @@ async function main() {
         await clearCollection('emergencyCases');
 
         // Seed new data
+        await seedUsers();  // Phase 2B: RBAC users
         await seedHospitals();
         await seedAmbulances();
         await seedEmergencyCases();
 
         console.log('\n✅ Seeding completed successfully!');
         console.log('\nData Summary:');
+        console.log(`  👤 ${DEMO_USERS.length} demo users`);
         console.log(`  🏥 ${HOSPITALS.length} hospitals`);
         console.log(`  🚑 ${AMBULANCES.length} ambulances`);
         console.log(`  🚨 ${EMERGENCY_CASES.length} emergency cases`);

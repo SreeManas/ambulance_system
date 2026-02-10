@@ -7,15 +7,23 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { getFirestore, collection, onSnapshot, query, orderBy, limit, where, doc } from "firebase/firestore";
-import { rankHospitals, getTopRecommendations, calculateDistanceKm } from "../services/capabilityScoringEngine.js";
+import { rankHospitals, getTopRecommendations, calculateDistanceKm, normalizeHospital } from "../services/capabilityScoringEngine.js";
 import {
     MapPin, Clock, AlertTriangle, Building2, Heart, Activity,
     Navigation, Zap, Users, ChevronRight, Timer, RefreshCw, Layers,
     Ambulance, Phone, CheckCircle, XCircle, Info
 } from "lucide-react";
+import { useMapResize } from "../hooks/useMapResize";
+import { useTPreload, useTBatch } from "../hooks/useT";
+import { PRELOAD_ROUTING } from "../constants/translationKeys";
+import RoutingStatusBanner from "./RoutingStatusBanner.jsx";
+import HospitalExplainabilityPanel from "./HospitalExplainabilityPanel.jsx";
+import DispatcherOverridePanel from "./DispatcherOverridePanel.jsx";
+import { useAuth } from "./auth/AuthProvider.jsx";
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN || "";
 
@@ -111,7 +119,29 @@ function getLoadColor(status) {
 // MAIN COMPONENT
 // =============================================================================
 
+const ROUTING_LABELS = [
+    "Hospital Ranking", "#1 Recommended", "#2-3 Suitable", "#4+ Lower Priority",
+    "Disqualified", "Route Lines", "Primary Route", "Secondary", "Tertiary",
+    "Calculating routes...", "Active Emergency", "Type:", "Acuity:", "Patient:",
+    "Time:", "Ranked Hospitals", "Score", "Go To Hospital", "Unknown",
+    "Just now", "Emergency", "Map failed to load"
+];
+
 export default function RoutingDashboard() {
+    // Phase 10: Preload translations for this dashboard
+    useTPreload(PRELOAD_ROUTING);
+
+    // Phase 5: Batch translate all static UI labels
+    const { translated: t } = useTBatch(ROUTING_LABELS);
+    const T = {
+        hospitalRanking: t[0], recommended: t[1], suitable: t[2], lowerPriority: t[3],
+        disqualified: t[4], routeLines: t[5], primaryRoute: t[6], secondary: t[7], tertiary: t[8],
+        calculatingRoutes: t[9], activeEmergency: t[10], type: t[11], acuity: t[12], patient: t[13],
+        time: t[14], rankedHospitals: t[15], score: t[16], goToHospital: t[17], unknown: t[18],
+        justNow: t[19], emergency: t[20], mapFailed: t[21]
+    };
+    const { role } = useAuth();
+    const routerNavigate = useNavigate();
     const mapRef = useRef(null);
     const containerRef = useRef(null);
     const markersRef = useRef([]);
@@ -134,6 +164,12 @@ export default function RoutingDashboard() {
     const [isLoadingRoutes, setIsLoadingRoutes] = useState(false);
     const [goldenHourRemaining, setGoldenHourRemaining] = useState(null);
     const [routingState, setRoutingState] = useState("idle"); // idle, evaluating, hospital_selected, en_route
+
+    // Phase 5B: Debounce state for routing recompute
+    const [isRecomputing, setIsRecomputing] = useState(false);
+    const [scoringLastRun, setScoringLastRun] = useState(null);
+    const [capacityLastUpdated, setCapacityLastUpdated] = useState(null);
+    const recomputeTimeoutRef = useRef(null);
 
     const db = getFirestore();
 
@@ -167,14 +203,22 @@ export default function RoutingDashboard() {
         return () => unsubscribe();
     }, [db, selectedCase]);
 
-    // Listen to hospitals
+    // Listen to hospitals with debounced scoring (Phase 5B)
     useEffect(() => {
         const unsubscribe = onSnapshot(collection(db, "hospitals"), (snapshot) => {
-            const hospitalList = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            }));
+            const hospitalList = snapshot.docs.map(doc => {
+                // MF6: Normalize hospital data to prevent scoring faults
+                const raw = { id: doc.id, ...doc.data() };
+                return normalizeHospital ? normalizeHospital(raw) || raw : raw;
+            });
             setHospitals(hospitalList);
+
+            // Track capacity freshness
+            const mostRecent = hospitalList.reduce((latest, h) => {
+                const ts = h.capacityLastUpdated?.toMillis?.() || 0;
+                return ts > latest ? ts : latest;
+            }, 0);
+            if (mostRecent > 0) setCapacityLastUpdated(mostRecent);
         }, (error) => {
             console.error("Hospitals listener error:", error);
         });
@@ -186,25 +230,42 @@ export default function RoutingDashboard() {
     // SCORING & RANKING
     // =============================================================================
 
-    // Re-rank hospitals when case or hospitals change
+    // Re-rank hospitals when case or hospitals change (with debounce - Phase 5B)
     useEffect(() => {
         if (!selectedCase || hospitals.length === 0) {
             setRankedHospitals([]);
             return;
         }
 
-        setRoutingState("evaluating");
-
-        const ranked = rankHospitals(hospitals, selectedCase);
-        setRankedHospitals(ranked);
-
-        // Auto-select top hospital
-        const topHospital = ranked.find(h => !h.disqualified);
-        if (topHospital && !selectedHospital) {
-            setSelectedHospital(topHospital);
+        // Cancel any pending recompute
+        if (recomputeTimeoutRef.current) {
+            clearTimeout(recomputeTimeoutRef.current);
         }
 
-        setRoutingState("hospital_selected");
+        setIsRecomputing(true);
+        setRoutingState("evaluating");
+
+        // Debounce by 800ms to prevent UI thrashing
+        recomputeTimeoutRef.current = setTimeout(() => {
+            const ranked = rankHospitals(hospitals, selectedCase);
+            setRankedHospitals(ranked);
+            setScoringLastRun(Date.now());
+            setIsRecomputing(false);
+
+            // Auto-select top hospital
+            const topHospital = ranked.find(h => !h.disqualified);
+            if (topHospital && !selectedHospital) {
+                setSelectedHospital(topHospital);
+            }
+
+            setRoutingState("hospital_selected");
+        }, 800);
+
+        return () => {
+            if (recomputeTimeoutRef.current) {
+                clearTimeout(recomputeTimeoutRef.current);
+            }
+        };
     }, [selectedCase, hospitals]);
 
     // Golden hour timer
@@ -276,6 +337,10 @@ export default function RoutingDashboard() {
             }
         };
     }, []);
+
+    // Map Resize Handler (Responsive + Orientation Support)
+    useMapResize(mapRef.current);
+
 
     // =============================================================================
     // INTELLIGENT VIEWPORT MANAGEMENT
@@ -669,18 +734,26 @@ export default function RoutingDashboard() {
                             <span className="text-sm font-medium capitalize">{routingState.replace("_", " ")}</span>
                         </div>
 
-                        {/* Compare Mode Toggle */}
-                        <button
-                            onClick={() => setShowCompareMode(!showCompareMode)}
-                            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${showCompareMode
-                                ? "bg-blue-600 text-white"
-                                : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-                                }`}
-                        >
-                            <Layers className="w-4 h-4" />
-                            Compare Routes
-                        </button>
+                        {/* Phase 8: Routing Status Banner */}
+                        <RoutingStatusBanner
+                            capacityLastUpdated={capacityLastUpdated}
+                            scoringLastRun={scoringLastRun}
+                            isRecomputing={isRecomputing}
+                            hospitalCount={hospitals.length}
+                        />
                     </div>
+
+                    {/* Compare Mode Toggle */}
+                    <button
+                        onClick={() => setShowCompareMode(!showCompareMode)}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${showCompareMode
+                            ? "bg-blue-600 text-white"
+                            : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                            }`}
+                    >
+                        <Layers className="w-4 h-4" />
+                        Compare Routes
+                    </button>
                 </div>
             </div>
 
@@ -706,40 +779,40 @@ export default function RoutingDashboard() {
 
                     {/* Legend */}
                     <div className="absolute bottom-6 left-6 bg-gray-800/95 backdrop-blur rounded-xl border border-gray-700 p-4 shadow-xl">
-                        <h4 className="text-white font-medium mb-3 text-sm">Hospital Ranking</h4>
+                        <h4 className="text-white font-medium mb-3 text-sm">{T.hospitalRanking}</h4>
                         <div className="space-y-2">
                             <div className="flex items-center gap-2">
                                 <div className="w-4 h-4 rounded-full" style={{ background: MARKER_COLORS.top }}></div>
-                                <span className="text-gray-300 text-sm">#1 Recommended</span>
+                                <span className="text-gray-300 text-sm">{T.recommended}</span>
                             </div>
                             <div className="flex items-center gap-2">
                                 <div className="w-4 h-4 rounded-full" style={{ background: MARKER_COLORS.moderate }}></div>
-                                <span className="text-gray-300 text-sm">#2-3 Suitable</span>
+                                <span className="text-gray-300 text-sm">{T.suitable}</span>
                             </div>
                             <div className="flex items-center gap-2">
                                 <div className="w-4 h-4 rounded-full" style={{ background: MARKER_COLORS.low }}></div>
-                                <span className="text-gray-300 text-sm">#4+ Lower Priority</span>
+                                <span className="text-gray-300 text-sm">{T.lowerPriority}</span>
                             </div>
                             <div className="flex items-center gap-2">
                                 <div className="w-4 h-4 rounded-full" style={{ background: MARKER_COLORS.disqualified }}></div>
-                                <span className="text-gray-300 text-sm">Disqualified</span>
+                                <span className="text-gray-300 text-sm">{T.disqualified}</span>
                             </div>
                         </div>
 
                         <div className="mt-4 pt-3 border-t border-gray-700">
-                            <h4 className="text-white font-medium mb-2 text-sm">Route Lines</h4>
+                            <h4 className="text-white font-medium mb-2 text-sm">{T.routeLines}</h4>
                             <div className="space-y-2">
                                 <div className="flex items-center gap-2">
                                     <div className="w-8 h-1 rounded" style={{ background: ROUTE_COLORS.primary }}></div>
-                                    <span className="text-gray-300 text-sm">Primary Route</span>
+                                    <span className="text-gray-300 text-sm">{T.primaryRoute}</span>
                                 </div>
                                 <div className="flex items-center gap-2">
                                     <div className="w-8 h-1 rounded" style={{ background: ROUTE_COLORS.secondary }}></div>
-                                    <span className="text-gray-300 text-sm">Secondary</span>
+                                    <span className="text-gray-300 text-sm">{T.secondary}</span>
                                 </div>
                                 <div className="flex items-center gap-2">
                                     <div className="w-8 h-1 rounded" style={{ background: ROUTE_COLORS.tertiary }}></div>
-                                    <span className="text-gray-300 text-sm">Tertiary</span>
+                                    <span className="text-gray-300 text-sm">{T.tertiary}</span>
                                 </div>
                             </div>
                         </div>
@@ -749,7 +822,7 @@ export default function RoutingDashboard() {
                     {isLoadingRoutes && (
                         <div className="absolute top-6 left-6 bg-blue-500/20 border border-blue-500/50 text-blue-400 px-4 py-2 rounded-lg flex items-center gap-2">
                             <RefreshCw className="w-4 h-4 animate-spin" />
-                            <span className="text-sm">Calculating routes...</span>
+                            <span className="text-sm">{T.calculatingRoutes}</span>
                         </div>
                     )}
                 </div>
@@ -759,7 +832,7 @@ export default function RoutingDashboard() {
                     {/* Case Selector */}
                     {emergencyCases.length > 1 && (
                         <div className="p-4 border-b border-gray-700">
-                            <label className="block text-gray-400 text-sm mb-2">Active Emergency</label>
+                            <label className="block text-gray-400 text-sm mb-2">{T.activeEmergency}</label>
                             <select
                                 value={selectedCase?.id || ""}
                                 onChange={(e) => {
@@ -784,7 +857,7 @@ export default function RoutingDashboard() {
                             <div className="flex items-center justify-between mb-3">
                                 <h3 className="font-semibold text-white flex items-center gap-2">
                                     <AlertTriangle className="w-5 h-5 text-red-500" />
-                                    Active Emergency
+                                    {T.activeEmergency}
                                 </h3>
                                 {goldenHourRemaining && (
                                     <span className="bg-red-500 text-white text-xs px-2 py-1 rounded animate-pulse">
@@ -794,21 +867,21 @@ export default function RoutingDashboard() {
                             </div>
                             <div className="grid grid-cols-2 gap-3 text-sm">
                                 <div>
-                                    <span className="text-gray-400">Type:</span>
+                                    <span className="text-gray-400">{T.type}</span>
                                     <p className="text-white font-medium">{selectedCase.emergencyContext?.emergencyType || "Unknown"}</p>
                                 </div>
                                 <div>
-                                    <span className="text-gray-400">Acuity:</span>
+                                    <span className="text-gray-400">{T.acuity}</span>
                                     <p className={`font-medium ${getAcuityLabel(selectedCase.acuityLevel).color.replace("bg-", "text-")}`}>
                                         {getAcuityLabel(selectedCase.acuityLevel).text}
                                     </p>
                                 </div>
                                 <div>
-                                    <span className="text-gray-400">Patient:</span>
+                                    <span className="text-gray-400">{T.patient}</span>
                                     <p className="text-white">{selectedCase.patientName || "Unknown"}</p>
                                 </div>
                                 <div>
-                                    <span className="text-gray-400">Time:</span>
+                                    <span className="text-gray-400">{T.time}</span>
                                     <p className="text-white">{formatTimeSince(selectedCase.emergencyContext?.incidentTimestamp)}</p>
                                 </div>
                             </div>
@@ -819,7 +892,7 @@ export default function RoutingDashboard() {
                     <div className="p-4">
                         <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
                             <Building2 className="w-5 h-5 text-blue-400" />
-                            Ranked Hospitals ({rankedHospitals.filter(h => !h.disqualified).length})
+                            {T.rankedHospitals} ({rankedHospitals.filter(h => !h.disqualified).length})
                         </h3>
 
                         <div className="space-y-3">
@@ -851,45 +924,77 @@ export default function RoutingDashboard() {
 
                                         <div className="grid grid-cols-3 gap-2 text-center">
                                             <div className="bg-gray-800/50 rounded-lg p-2">
-                                                <div className="text-lg font-bold text-white">{hospital.suitabilityScore}</div>
-                                                <div className="text-xs text-gray-400">Score</div>
+                                                <div className="text-lg font-bold text-white">{hospital.suitabilityScore ?? 0}</div>
+                                                <div className="text-xs text-gray-400">{T.score}</div>
                                             </div>
                                             <div className="bg-gray-800/50 rounded-lg p-2">
-                                                <div className="text-lg font-bold text-blue-400">{hospital.etaMinutes}</div>
+                                                <div className="text-lg font-bold text-blue-400">{hospital.etaMinutes != null && isFinite(hospital.etaMinutes) ? hospital.etaMinutes : '—'}</div>
                                                 <div className="text-xs text-gray-400">min</div>
                                             </div>
                                             <div className="bg-gray-800/50 rounded-lg p-2">
-                                                <div className="text-lg font-bold text-purple-400">{hospital.distanceKm}</div>
+                                                <div className="text-lg font-bold text-purple-400">{hospital.distanceKm != null && hospital.distanceKm < 999 ? hospital.distanceKm : '—'}</div>
                                                 <div className="text-xs text-gray-400">km</div>
                                             </div>
                                         </div>
 
-                                        {isSelected && hospital.recommendationReasons && (
+                                        {isSelected && (
                                             <div className="mt-3 pt-3 border-t border-gray-600">
-                                                <div className="text-xs text-gray-400 mb-2">Why this hospital:</div>
-                                                <div className="flex flex-wrap gap-1">
-                                                    {hospital.recommendationReasons.slice(0, 4).map((reason, i) => (
-                                                        <span key={i} className="bg-gray-600 text-gray-200 text-xs px-2 py-1 rounded">
-                                                            {reason}
-                                                        </span>
-                                                    ))}
-                                                </div>
+                                                <HospitalExplainabilityPanel hospital={hospital} compact={false} />
+                                                {/* Go To Hospital Navigation Button */}
+                                                {selectedCase && (
+                                                    <button
+                                                        onClick={async (e) => {
+                                                            e.stopPropagation();
+                                                            const pickupLoc = selectedCase.pickupLocation || selectedCase.location;
+                                                            const hospLoc = hospitalData?.location || hospitalData?.basicInfo?.location;
+                                                            const origin = pickupLoc ? [pickupLoc.longitude || pickupLoc.lng, pickupLoc.latitude || pickupLoc.lat] : null;
+                                                            const dest = hospLoc ? [hospLoc.longitude || hospLoc.lng, hospLoc.latitude || hospLoc.lat] : null;
+                                                            const ambulanceId = `amb_${selectedCase.id || Date.now()}`;
+                                                            const trackingLink = `${window.location.origin}/track/${ambulanceId}`;
 
-                                                {/* Score breakdown */}
-                                                <div className="mt-3 space-y-1">
-                                                    <div className="flex justify-between text-xs">
-                                                        <span className="text-gray-400">Capability</span>
-                                                        <span className="text-white">{hospital.scoreBreakdown?.capability || 0}</span>
-                                                    </div>
-                                                    <div className="flex justify-between text-xs">
-                                                        <span className="text-gray-400">Specialists</span>
-                                                        <span className="text-white">{hospital.scoreBreakdown?.specialists || 0}</span>
-                                                    </div>
-                                                    <div className="flex justify-between text-xs">
-                                                        <span className="text-gray-400">ICU Beds</span>
-                                                        <span className="text-white">{hospital.scoreBreakdown?.icuCount || 0}</span>
-                                                    </div>
-                                                </div>
+                                                            // Trigger navigation
+                                                            routerNavigate('/navigate', {
+                                                                state: {
+                                                                    caseData: selectedCase,
+                                                                    hospitalData: hospital,
+                                                                    origin,
+                                                                    destination: dest,
+                                                                    hospitalName: hospital.hospitalName,
+                                                                    ambulanceId
+                                                                }
+                                                            });
+
+                                                            // AUTOMATED COMMUNICATION (non-blocking)
+                                                            (async () => {
+                                                                try {
+                                                                    // 1. Send dispatch tracking SMS to patient/relatives
+                                                                    await sendDispatchTrackingSMS({
+                                                                        caseData: selectedCase,
+                                                                        ambulanceId,
+                                                                        etaMinutes: hospital.eta || 0,
+                                                                        trackingLink
+                                                                    });
+
+                                                                    // 2. Send hospital alert SMS
+                                                                    await sendHospitalAlertSMS({
+                                                                        caseData: selectedCase,
+                                                                        hospital,
+                                                                        etaMinutes: hospital.eta || 0
+                                                                    });
+
+                                                                    console.log('✅ Communication automation complete');
+                                                                } catch (err) {
+                                                                    console.error('Communication automation error:', err);
+                                                                }
+                                                            })();
+                                                        }}
+                                                        className="mt-3 w-full py-3 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700
+                                                            text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg
+                                                            transition-all hover:shadow-emerald-500/25 hover:scale-[1.02]"
+                                                    >
+                                                        🚑 {T.goToHospital}
+                                                    </button>
+                                                )}
                                             </div>
                                         )}
                                     </div>
@@ -902,7 +1007,7 @@ export default function RoutingDashboard() {
                             <div className="mt-6">
                                 <h4 className="text-gray-400 text-sm mb-3 flex items-center gap-2">
                                     <XCircle className="w-4 h-4" />
-                                    Disqualified ({rankedHospitals.filter(h => h.disqualified).length})
+                                    {T.disqualified} ({rankedHospitals.filter(h => h.disqualified).length})
                                 </h4>
                                 <div className="space-y-2">
                                     {rankedHospitals.filter(h => h.disqualified).slice(0, 3).map(hospital => (
@@ -923,6 +1028,18 @@ export default function RoutingDashboard() {
                             </div>
                         )}
                     </div>
+
+                    {/* Phase-2: Dispatcher Override Panel */}
+                    {(role === 'dispatcher' || role === 'admin' || role === 'command_center') && selectedCase && rankedHospitals.length > 0 && (
+                        <div className="mt-4">
+                            <DispatcherOverridePanel
+                                caseId={selectedCase?.id || 'preview'}
+                                currentHospital={rankedHospitals.find(h => !h.disqualified)}
+                                allHospitals={rankedHospitals}
+                                canOverride={role === 'dispatcher' || role === 'admin' || role === 'command_center'}
+                            />
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -938,6 +1055,6 @@ export default function RoutingDashboard() {
           animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
         }
       `}</style>
-        </div>
+        </div >
     );
 }

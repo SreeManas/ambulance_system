@@ -147,6 +147,191 @@ const EMERGENCY_TYPE_ALIAS = {
 };
 
 // =============================================================================
+// NaN-SAFE UTILITY FUNCTIONS (Production Hardening)
+// =============================================================================
+
+const IS_DEV = typeof process !== 'undefined'
+    ? process.env?.NODE_ENV === 'development'
+    : (typeof window !== 'undefined' && window.location?.hostname === 'localhost');
+
+/**
+ * Safely extract a numeric value from potentially nested or undefined data
+ * Handles: number, {available, count}, undefined, null, NaN
+ */
+function safeNum(value, fallback = 0) {
+    if (value === null || value === undefined) return fallback;
+    if (typeof value === 'number') return isNaN(value) ? fallback : value;
+    if (typeof value === 'object') {
+        // Handle {available: X, count: Y} or {available: X, total: Y} structures
+        const num = value.available ?? value.count ?? value.total ?? fallback;
+        return typeof num === 'number' && !isNaN(num) ? num : fallback;
+    }
+    const parsed = parseFloat(value);
+    return isNaN(parsed) ? fallback : parsed;
+}
+
+/**
+ * Ensure a score is a valid number between bounds
+ */
+function safeScore(score, min = 0, max = 100) {
+    if (typeof score !== 'number' || isNaN(score)) return min;
+    return Math.max(min, Math.min(max, score));
+}
+
+/**
+ * Normalize hospital data with safe defaults for all nested fields
+ * Prevents undefined field access from causing NaN
+ */
+export function normalizeHospital(hospital) {
+    if (!hospital) return null;
+
+    const safe = {
+        id: hospital.id || 'unknown',
+        basicInfo: {
+            name: hospital.basicInfo?.name || 'Unknown Hospital',
+            hospitalType: hospital.basicInfo?.hospitalType || 'general',
+            traumaLevel: hospital.basicInfo?.traumaLevel || 'none',
+            address: hospital.basicInfo?.address || '',
+            phone: hospital.basicInfo?.phone || '',
+            location: {
+                latitude: safeNum(hospital.basicInfo?.location?.latitude) ||
+                    safeNum(hospital.basicInfo?.location?._latitude) || 0,
+                longitude: safeNum(hospital.basicInfo?.location?.longitude) ||
+                    safeNum(hospital.basicInfo?.location?._longitude) || 0
+            }
+        },
+        bedAvailability: {
+            total: safeNum(hospital.bedAvailability?.total, 0),
+            available: safeNum(hospital.bedAvailability?.available, 0),
+            icu: {
+                total: safeNum(hospital.bedAvailability?.icu?.total, 0),
+                available: safeNum(hospital.bedAvailability?.icu?.available, 0)
+            },
+            emergency: {
+                total: safeNum(hospital.bedAvailability?.emergency?.total, 0),
+                available: safeNum(hospital.bedAvailability?.emergency?.available, 0)
+            },
+            traumaBeds: {
+                total: safeNum(hospital.bedAvailability?.traumaBeds?.total, 0),
+                available: safeNum(hospital.bedAvailability?.traumaBeds?.available, 0)
+            },
+            isolationBeds: {
+                total: safeNum(hospital.bedAvailability?.isolationBeds?.total, 0),
+                available: safeNum(hospital.bedAvailability?.isolationBeds?.available, 0)
+            },
+            pediatricBeds: {
+                total: safeNum(hospital.bedAvailability?.pediatricBeds?.total, 0),
+                available: safeNum(hospital.bedAvailability?.pediatricBeds?.available, 0)
+            }
+        },
+        specialists: normalizeSpecialists(hospital.specialists),
+        equipment: {
+            ventilators: {
+                total: safeNum(hospital.equipment?.ventilators?.total ?? hospital.equipment?.ventilators, 0),
+                available: safeNum(hospital.equipment?.ventilators?.available ?? hospital.equipment?.ventilators, 0)
+            },
+            defibrillators: safeNum(hospital.equipment?.defibrillators, 0),
+            portableXRay: safeNum(hospital.equipment?.portableXRay, 0),
+            dialysisMachines: safeNum(hospital.equipment?.dialysisMachines, 0),
+            ctScanners: safeNum(hospital.equipment?.ctScanners, 0)
+        },
+        emergencyReadiness: {
+            status: hospital.emergencyReadiness?.status || 'accepting',
+            diversionStatus: hospital.emergencyReadiness?.diversionStatus || false,
+            ambulanceQueue: safeNum(hospital.emergencyReadiness?.ambulanceQueue, 0)
+        },
+        caseAcceptance: {
+            acceptsTrauma: hospital.caseAcceptance?.acceptsTrauma ?? true,
+            acceptsCardiac: hospital.caseAcceptance?.acceptsCardiac ?? true,
+            acceptsBurns: hospital.caseAcceptance?.acceptsBurns ?? false,
+            acceptsPediatric: hospital.caseAcceptance?.acceptsPediatric ?? true,
+            acceptsInfectious: hospital.caseAcceptance?.acceptsInfectious ?? false
+        },
+        clinicalCapabilities: hospital.clinicalCapabilities || {},
+        serviceAvailability: hospital.serviceAvailability || {},
+        capacityLastUpdated: hospital.capacityLastUpdated || null
+    };
+
+    // ──────────────────────────────────────────────────────────────────
+    // Phase-2: LiveOps override — real-time data wins over static data
+    // ──────────────────────────────────────────────────────────────────
+    const liveOps = hospital.liveOps;
+    if (liveOps) {
+        // Bed availability overrides
+        if (liveOps.bedAvailability) {
+            const lb = liveOps.bedAvailability;
+            if (lb.icuAvailable != null) safe.bedAvailability.icu.available = safeNum(lb.icuAvailable, safe.bedAvailability.icu.available);
+            if (lb.emergencyAvailable != null) safe.bedAvailability.emergency.available = safeNum(lb.emergencyAvailable, safe.bedAvailability.emergency.available);
+            if (lb.traumaAvailable != null) safe.bedAvailability.traumaBeds.available = safeNum(lb.traumaAvailable, safe.bedAvailability.traumaBeds.available);
+            if (lb.isolationAvailable != null) safe.bedAvailability.isolationBeds.available = safeNum(lb.isolationAvailable, safe.bedAvailability.isolationBeds.available);
+        }
+        // Equipment overrides
+        if (liveOps.equipmentAvailability) {
+            const le = liveOps.equipmentAvailability;
+            if (le.ventilatorsAvailable != null) safe.equipment.ventilators.available = safeNum(le.ventilatorsAvailable, safe.equipment.ventilators.available);
+        }
+        // Emergency readiness overrides
+        if (liveOps.emergencyReadiness) {
+            const lr = liveOps.emergencyReadiness;
+            if (lr.status) safe.emergencyReadiness.status = lr.status;
+            if (lr.ambulanceQueue != null) safe.emergencyReadiness.ambulanceQueue = safeNum(lr.ambulanceQueue, 0);
+        }
+    }
+
+    return safe;
+}
+
+/**
+ * Normalize specialist counts - handle both {count, available} and simple number formats
+ */
+function normalizeSpecialists(specialists) {
+    if (!specialists || typeof specialists !== 'object') return {};
+
+    const normalized = {};
+    const specTypes = [
+        'cardiologist', 'neurologist', 'traumaSurgeon', 'radiologist',
+        'pulmonologist', 'burnSpecialist', 'orthopedic', 'pediatrician'
+    ];
+
+    specTypes.forEach(spec => {
+        const val = specialists[spec];
+        if (val === undefined || val === null) {
+            normalized[spec] = 0;
+        } else if (typeof val === 'number') {
+            normalized[spec] = isNaN(val) ? 0 : val;
+        } else if (typeof val === 'object') {
+            // Extract available or count from object structure
+            normalized[spec] = safeNum(val.available ?? val.count ?? val.total, 0);
+        } else {
+            normalized[spec] = 0;
+        }
+    });
+
+    return normalized;
+}
+
+/**
+ * Debug logging for score breakdown (development only)
+ */
+function debugScoring(hospitalName, scores, weights, finalScore) {
+    if (!IS_DEV) return;
+
+    console.group(`🏥 Scoring Debug: ${hospitalName}`);
+    console.log('Capability:', scores.capability);
+    console.log('Specialists:', scores.specialists);
+    console.log('Equipment:', scores.equipment);
+    console.log('Beds:', scores.beds);
+    console.log('Distance:', scores.distance);
+    console.log('Load:', scores.load);
+    console.log('Weights:', weights);
+    console.log('Final Score:', finalScore);
+    if (isNaN(finalScore)) {
+        console.error('⚠️ NaN DETECTED - Check individual scores above');
+    }
+    console.groupEnd();
+}
+
+// =============================================================================
 // CORE UTILITY FUNCTIONS
 // =============================================================================
 
@@ -155,12 +340,22 @@ function toRad(deg) {
 }
 
 export function calculateDistanceKm(coord1, coord2) {
-    if (!coord1 || !coord2) return Infinity;
+    // Guard: Missing coordinates - return max distance penalty instead of Infinity
+    if (!coord1 || !coord2) {
+        if (IS_DEV) console.warn('⚠️ Distance: Missing coordinates, using max penalty');
+        return 999;
+    }
 
-    const lat1 = coord1.latitude || coord1._latitude || 0;
-    const lon1 = coord1.longitude || coord1._longitude || 0;
-    const lat2 = coord2.latitude || coord2._latitude || 0;
-    const lon2 = coord2.longitude || coord2._longitude || 0;
+    const lat1 = safeNum(coord1.latitude ?? coord1._latitude, 0);
+    const lon1 = safeNum(coord1.longitude ?? coord1._longitude, 0);
+    const lat2 = safeNum(coord2.latitude ?? coord2._latitude, 0);
+    const lon2 = safeNum(coord2.longitude ?? coord2._longitude, 0);
+
+    // Guard: Invalid coordinates (all zeros means invalid)
+    if (lat1 === 0 && lon1 === 0 && lat2 === 0 && lon2 === 0) {
+        if (IS_DEV) console.warn('⚠️ Distance: All coordinates are zero');
+        return 999;
+    }
 
     const R = 6371;
     const dLat = toRad(lat2 - lat1);
@@ -170,14 +365,27 @@ export function calculateDistanceKm(coord1, coord2) {
         Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
         Math.sin(dLon / 2) ** 2;
 
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const result = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    // Guard: NaN or Infinity result
+    if (!isFinite(result) || isNaN(result)) {
+        if (IS_DEV) console.warn('⚠️ Distance: Calculation returned NaN/Infinity');
+        return 999;
+    }
+
+    return result;
 }
 
 export function estimateETA(distanceKm) {
-    return Math.round((distanceKm / 40) * 60);  // 40 km/h average
+    // Guard: Invalid distance
+    const safeDist = safeNum(distanceKm, 999);
+    if (safeDist >= 999) return 999; // Max ETA for invalid distances
+    return Math.round((safeDist / 40) * 60);  // 40 km/h average
 }
 
 function calculateDistanceScore(distanceKm) {
+    // Guard: Invalid distance returns 0 score
+    if (!isFinite(distanceKm) || isNaN(distanceKm) || distanceKm >= 999) return 0;
     if (distanceKm <= 0) return 100;
     if (distanceKm >= 50) return 0;
     return Math.max(0, Math.round(100 - (distanceKm * 2)));
@@ -528,26 +736,56 @@ function applyTieBreakers(hospitals) {
 // =============================================================================
 
 export function scoreHospital(hospital, emergencyCase) {
-    const emergencyType = emergencyCase.emergencyContext?.emergencyType || 'other';
+    // ==========================================================================
+    // STEP 1: Normalize hospital data to prevent undefined field access
+    // ==========================================================================
+    const safeHospital = normalizeHospital(hospital);
+
+    // Guard: Invalid hospital input
+    if (!safeHospital) {
+        if (IS_DEV) console.warn('⚠️ scoreHospital: Invalid hospital input');
+        return {
+            hospitalId: hospital?.id || 'unknown',
+            hospitalName: 'Unknown Hospital',
+            suitabilityScore: 0,
+            distanceKm: 999,
+            etaMinutes: 999,
+            disqualified: true,
+            disqualifyReasons: ['Invalid hospital data'],
+            scoreBreakdown: {},
+            recommendationReasons: []
+        };
+    }
+
+    const emergencyType = emergencyCase?.emergencyContext?.emergencyType || 'other';
     const mappedType = EMERGENCY_TYPE_ALIAS[emergencyType] || emergencyType;
     const profile = EMERGENCY_PROFILES[mappedType] || EMERGENCY_PROFILES.other;
 
-    // Pre-scoring disqualification check
-    const disqualCheck = checkDisqualification(hospital, emergencyCase, profile);
-
-    // Calculate distance
-    const pickupLocation = emergencyCase.pickupLocation;
-    const hospitalLocation = hospital.basicInfo?.location;
+    // ==========================================================================
+    // STEP 2: Safe distance calculation with guards
+    // ==========================================================================
+    const pickupLocation = emergencyCase?.pickupLocation;
+    const hospitalLocation = safeHospital.basicInfo.location;
     const distanceKm = calculateDistanceKm(pickupLocation, hospitalLocation);
     const etaMinutes = estimateETA(distanceKm);
 
+    // Safe distance for output (prevent Infinity/NaN in response)
+    const safeDistanceKm = isFinite(distanceKm) && !isNaN(distanceKm)
+        ? Math.round(distanceKm * 10) / 10
+        : 999;
+
+    // ==========================================================================
+    // STEP 3: Pre-scoring disqualification check
+    // ==========================================================================
+    const disqualCheck = checkDisqualification(safeHospital, emergencyCase, profile);
+
     if (disqualCheck.disqualified) {
         return {
-            hospitalId: hospital.id,
-            hospitalName: hospital.basicInfo?.name || 'Unknown',
+            hospitalId: safeHospital.id,
+            hospitalName: safeHospital.basicInfo.name,
             suitabilityScore: 0,
-            distanceKm: Math.round(distanceKm * 10) / 10,
-            etaMinutes,
+            distanceKm: safeDistanceKm,
+            etaMinutes: isFinite(etaMinutes) ? etaMinutes : 999,
             disqualified: true,
             disqualifyReasons: disqualCheck.reasons,
             scoreBreakdown: {},
@@ -555,39 +793,98 @@ export function scoreHospital(hospital, emergencyCase) {
         };
     }
 
-    // Golden hour modifier
+    // ==========================================================================
+    // STEP 4: Calculate all component scores with safe guards
+    // ==========================================================================
     const goldenHour = calculateGoldenHourModifier(emergencyCase);
-    const weights = getWeightProfile(emergencyCase.acuityLevel, goldenHour.modifier);
+    const weights = getWeightProfile(emergencyCase?.acuityLevel, goldenHour.modifier);
 
-    // Calculate all scores
-    const capabilityResult = calculateCapabilityScore(hospital, emergencyCase, profile);
-    const specialistResult = calculateSpecialistScore(hospital, profile);
-    const equipmentResult = calculateEquipmentScore(hospital, emergencyCase, profile);
-    const bedResult = calculateBedScore(hospital, emergencyCase, profile);
-    const loadResult = calculateLoadScore(hospital);
+    // Calculate scores using normalized hospital data
+    const capabilityResult = calculateCapabilityScore(safeHospital, emergencyCase, profile);
+    const specialistResult = calculateSpecialistScore(safeHospital, profile);
+    const equipmentResult = calculateEquipmentScore(safeHospital, emergencyCase, profile);
+    const bedResult = calculateBedScore(safeHospital, emergencyCase, profile);
+    const loadResult = calculateLoadScore(safeHospital);
     const distanceScore = calculateDistanceScore(distanceKm);
-    const freshnessResult = calculateFreshnessPenalty(hospital);
+    const freshnessResult = calculateFreshnessPenalty(safeHospital);
 
-    // Weighted score calculation
-    const weightedScore =
-        (capabilityResult.score * weights.capability) +
-        (specialistResult.score * weights.specialists) +
-        (equipmentResult.score * weights.equipment) +
-        (bedResult.score * weights.beds) +
-        (loadResult.score * weights.load) +
-        (distanceScore * weights.distance);
+    // ==========================================================================
+    // STEP 5: Apply safe score guards to all component scores
+    // ==========================================================================
+    const safeScores = {
+        capability: safeScore(capabilityResult.score),
+        specialists: safeScore(specialistResult.score),
+        equipment: safeScore(equipmentResult.score),
+        beds: safeScore(bedResult.score),
+        load: safeScore(loadResult.score),
+        distance: safeScore(distanceScore)
+    };
 
-    const finalScore = Math.round(weightedScore * freshnessResult.multiplier);
+    // Safe weight extraction with defaults
+    const safeWeights = {
+        capability: safeNum(weights.capability, 0.4),
+        specialists: safeNum(weights.specialists, 0.1),
+        equipment: safeNum(weights.equipment, 0.05),
+        beds: safeNum(weights.beds, 0.15),
+        load: safeNum(weights.load, 0.05),
+        distance: safeNum(weights.distance, 0.25)
+    };
 
-    // Build recommendation reasons
+    // Safe freshness multiplier
+    const safeMultiplier = safeNum(freshnessResult.multiplier, 1.0);
+
+    // ==========================================================================
+    // STEP 6: Weighted score calculation with NaN detection
+    // ==========================================================================
+    let weightedScore =
+        (safeScores.capability * safeWeights.capability) +
+        (safeScores.specialists * safeWeights.specialists) +
+        (safeScores.equipment * safeWeights.equipment) +
+        (safeScores.beds * safeWeights.beds) +
+        (safeScores.load * safeWeights.load) +
+        (safeScores.distance * safeWeights.distance);
+
+    let finalScore = Math.round(weightedScore * safeMultiplier);
+
+    // ==========================================================================
+    // STEP 7: NaN AUTO-RECOVERY
+    // ==========================================================================
+    if (isNaN(finalScore) || !isFinite(finalScore)) {
+        if (IS_DEV) {
+            console.error(`⚠️ NaN DETECTED for ${safeHospital.basicInfo.name}`);
+            console.log('Scores:', safeScores);
+            console.log('Weights:', safeWeights);
+            console.log('Multiplier:', safeMultiplier);
+        }
+
+        // Fallback: Use simple average of non-NaN scores
+        const validScores = Object.values(safeScores).filter(s => !isNaN(s) && isFinite(s));
+        if (validScores.length > 0) {
+            finalScore = Math.round(validScores.reduce((a, b) => a + b, 0) / validScores.length);
+        } else {
+            finalScore = 0; // Ultimate fallback
+        }
+    }
+
+    // ==========================================================================
+    // STEP 8: Debug instrumentation (development only)
+    // ==========================================================================
+    debugScoring(safeHospital.basicInfo.name, safeScores, safeWeights, finalScore);
+
+    // ==========================================================================
+    // STEP 9: Build recommendation reasons
+    // ==========================================================================
     const recommendationReasons = [
         ...capabilityResult.reasons.slice(0, 2),
         ...specialistResult.reasons.slice(0, 1),
         ...bedResult.reasons.slice(0, 2)
     ].filter(r => r);
 
-    if (distanceKm <= 5) recommendationReasons.push(`Very close (${Math.round(distanceKm * 10) / 10} km)`);
-    else if (distanceKm <= 15) recommendationReasons.push(`Nearby (${Math.round(distanceKm)} km)`);
+    if (safeDistanceKm <= 5 && safeDistanceKm < 999) {
+        recommendationReasons.push(`Very close (${safeDistanceKm} km)`);
+    } else if (safeDistanceKm <= 15 && safeDistanceKm < 999) {
+        recommendationReasons.push(`Nearby (${Math.round(safeDistanceKm)} km)`);
+    }
 
     if (goldenHour.inGoldenHour) {
         recommendationReasons.push(`⏱️ Golden hour: ${goldenHour.minutesRemaining}min remaining`);
@@ -595,29 +892,32 @@ export function scoreHospital(hospital, emergencyCase) {
 
     if (freshnessResult.reason) recommendationReasons.push(freshnessResult.reason);
 
+    // ==========================================================================
+    // STEP 10: Return clean, validated result object
+    // ==========================================================================
     return {
-        hospitalId: hospital.id,
-        hospitalName: hospital.basicInfo?.name || 'Unknown',
-        hospitalType: hospital.basicInfo?.hospitalType,
-        traumaLevel: hospital.basicInfo?.traumaLevel,
-        address: hospital.basicInfo?.address,
-        phone: hospital.basicInfo?.phone,
+        hospitalId: safeHospital.id,
+        hospitalName: safeHospital.basicInfo.name,
+        hospitalType: safeHospital.basicInfo.hospitalType,
+        traumaLevel: safeHospital.basicInfo.traumaLevel,
+        address: safeHospital.basicInfo.address,
+        phone: safeHospital.basicInfo.phone,
         suitabilityScore: finalScore,
-        distanceKm: Math.round(distanceKm * 10) / 10,
-        etaMinutes,
+        distanceKm: safeDistanceKm,
+        etaMinutes: isFinite(etaMinutes) ? etaMinutes : 999,
         disqualified: false,
         scoreBreakdown: {
-            capability: capabilityResult.score,
-            specialists: specialistResult.score,
-            equipment: equipmentResult.score,
-            beds: bedResult.score,
-            loadPenalty: loadResult.penalty,
-            distanceScore,
-            freshnessMultiplier: freshnessResult.multiplier,
-            icuCount: bedResult.icuCount,
-            specialistCount: specialistResult.count
+            capability: safeScores.capability,
+            specialists: safeScores.specialists,
+            equipment: safeScores.equipment,
+            beds: safeScores.beds,
+            loadPenalty: safeNum(loadResult.penalty, 0),
+            distanceScore: safeScores.distance,
+            freshnessMultiplier: safeMultiplier,
+            icuCount: safeNum(bedResult.icuCount, 0),
+            specialistCount: safeNum(specialistResult.count, 0)
         },
-        weights,
+        weights: safeWeights,
         goldenHour,
         recommendationReasons
     };

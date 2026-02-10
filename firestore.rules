@@ -1,28 +1,134 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Allow users to read and write their own feedback
-    match /feedback/{docId} {
-      allow read, create: if request.auth != null;
-      allow update, delete: if request.auth != null && request.auth.uid == resource.data.userId;
+    
+    // Helper function to get user role from Firestore
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+    
+    function isAdmin() {
+      return request.auth != null && getUserRole() == 'admin';
+    }
+    
+    function isDispatcher() {
+      return request.auth != null && getUserRole() == 'dispatcher';
+    }
+    
+    function isParamedic() {
+      return request.auth != null && getUserRole() == 'paramedic';
+    }
+    
+    function isHospitalAdmin() {
+      return request.auth != null && getUserRole() == 'hospital_admin';
+    }
+    
+    function isAuthenticated() {
+      return request.auth != null;
     }
 
-    // Allow users to read and write their own user data
+    // ============================================
+    // Emergency Cases Collection
+    // - paramedic: create
+    // - dispatcher: read/update
+    // - admin: full access
+    // ============================================
+    match /emergencyCases/{caseId} {
+      allow read: if isAuthenticated() && (isParamedic() || isDispatcher() || isAdmin());
+      allow create: if isAuthenticated() && (isParamedic() || isDispatcher() || isAdmin());
+      allow update: if isAuthenticated() && (isDispatcher() || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // ============================================
+    // Hospitals Collection
+    // - hospital_admin: create/update
+    // - dispatcher: read only
+    // - admin: full access
+    // ============================================
+    match /hospitals/{hospitalId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated();
+      allow delete: if isAdmin();
+    }
+
+    // ============================================
+    // Dispatch Overrides Collection (audit trail)
+    // ============================================
+    match /dispatchOverrides/{docId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (isDispatcher() || isAdmin() || getUserRole() == 'command_center');
+    }
+
+    // ============================================
+    // Ambulance Tracking Collection (live GPS)
+    // - all authenticated: read (for shareable links)
+    // - dispatcher/paramedic/admin/command_center: write
+    // ============================================
+    match /ambulanceTracking/{trackingId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated();
+    }
+
+    // ============================================
+    // Ambulances Collection
+    // - dispatcher: update
+    // - admin: full access
+    // ============================================
+    match /ambulances/{ambulanceId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin();
+      allow update: if isAuthenticated() && (isDispatcher() || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // ============================================
+    // Users Collection
+    // - self: read own document
+    // - admin: full access
+    // ============================================
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin() || request.auth.uid == userId;
     }
 
-    // Allow authenticated users to read reports
+    // ============================================
+    // Feedback Collection
+    // - authenticated: create
+    // - admin: read all
+    // ============================================
+    // Communication Logs Collection
+    // ============================================
+    match /communicationLogs/{logId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin();
+    }
+
+    // ============================================
+    match /feedback/{docId} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin();
+    }
+
+    // ============================================
+    // Reports Collection (legacy support)
+    // ============================================
     match /reports/{reportId} {
-      allow read, create: if request.auth != null;
-      allow update, delete: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin();
     }
 
-    // Allow authenticated users to read and create alerts
+    // ============================================
+    // Alerts Collection (legacy support)
+    // ============================================
     match /alerts/{alertId} {
-      allow read, create: if request.auth != null;
-      allow update, delete: if request.auth != null && (request.auth.uid == resource.data.createdBy || resource.data.role == 'official' || resource.data.role == 'analyst');
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin();
     }
 
   }

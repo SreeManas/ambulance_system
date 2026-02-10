@@ -1,0 +1,206 @@
+/* src/styles/rtl.css
+ * RTL (Right-to-Left) Layout Support — Phase 9
+ * Auto-activated when html[dir="rtl"] is set by LanguageContext
+ * Covers: Navigation, Sidebar, Forms, Panels, Grids, Icons
+ */
+
+/* ─── Base RTL Text & Direction ─────────────────────────── */
+[dir="rtl"] {
+    text-align: right;
+}
+
+[dir="rtl"] input,
+[dir="rtl"] textarea,
+[dir="rtl"] select {
+    text-align: right;
+    direction: rtl;
+}
+
+/* ─── Flexbox Direction Flip ────────────────────────────── */
+[dir="rtl"] .flex-row,
+[dir="rtl"] .flex {
+    flex-direction: row-reverse;
+}
+
+/* Preserve column layouts */
+[dir="rtl"] .flex-col {
+    flex-direction: column;
+}
+
+/* ─── Navigation & Header ───────────────────────────────── */
+[dir="rtl"] nav .flex,
+[dir="rtl"] header .flex {
+    flex-direction: row-reverse;
+}
+
+[dir="rtl"] nav .gap-2,
+[dir="rtl"] nav .gap-3,
+[dir="rtl"] nav .gap-4 {
+    direction: rtl;
+}
+
+/* ─── Grid Layouts (no flip needed, auto-handled by dir) ─ */
+
+/* ─── Margin/Padding Swap ───────────────────────────────── */
+[dir="rtl"] .ml-auto {
+    margin-left: 0;
+    margin-right: auto;
+}
+
+[dir="rtl"] .mr-auto {
+    margin-right: 0;
+    margin-left: auto;
+}
+
+[dir="rtl"] .ml-2 {
+    margin-left: 0;
+    margin-right: 0.5rem;
+}
+
+[dir="rtl"] .mr-2 {
+    margin-right: 0;
+    margin-left: 0.5rem;
+}
+
+[dir="rtl"] .ml-3 {
+    margin-left: 0;
+    margin-right: 0.75rem;
+}
+
+[dir="rtl"] .mr-3 {
+    margin-right: 0;
+    margin-left: 0.75rem;
+}
+
+[dir="rtl"] .ml-4 {
+    margin-left: 0;
+    margin-right: 1rem;
+}
+
+[dir="rtl"] .mr-4 {
+    margin-right: 0;
+    margin-left: 1rem;
+}
+
+[dir="rtl"] .pl-4 {
+    padding-left: 0;
+    padding-right: 1rem;
+}
+
+[dir="rtl"] .pr-4 {
+    padding-right: 0;
+    padding-left: 1rem;
+}
+
+[dir="rtl"] .pl-2 {
+    padding-left: 0;
+    padding-right: 0.5rem;
+}
+
+[dir="rtl"] .pr-2 {
+    padding-right: 0;
+    padding-left: 0.5rem;
+}
+
+/* ─── Icon / Chevron Flip ───────────────────────────────── */
+[dir="rtl"] .lucide-chevron-right,
+[dir="rtl"] .lucide-arrow-right,
+[dir="rtl"] .lucide-chevron-left,
+[dir="rtl"] .lucide-arrow-left {
+    transform: scaleX(-1);
+}
+
+/* ─── Text Alignment Overrides ──────────────────────────── */
+[dir="rtl"] .text-left {
+    text-align: right;
+}
+
+[dir="rtl"] .text-right {
+    text-align: left;
+}
+
+[dir="rtl"] .text-center {
+    text-align: center;
+}
+
+/* keep centered */
+
+/* ─── Border Radius Swap ────────────────────────────────── */
+[dir="rtl"] .rounded-l-lg {
+    border-radius: 0 0.5rem 0.5rem 0;
+}
+
+[dir="rtl"] .rounded-r-lg {
+    border-radius: 0.5rem 0 0 0.5rem;
+}
+
+/* ─── Absolute / Fixed Positioning ──────────────────────── */
+[dir="rtl"] .left-0 {
+    left: auto;
+    right: 0;
+}
+
+[dir="rtl"] .right-0 {
+    right: auto;
+    left: 0;
+}
+
+/* ─── Drawer / Sidebar Flip ─────────────────────────────── */
+[dir="rtl"] .drawer {
+    left: auto;
+    right: -320px;
+}
+
+[dir="rtl"] .drawer.drawer-open {
+    right: 0;
+}
+
+/* ─── Table Alignment ───────────────────────────────────── */
+[dir="rtl"] th,
+[dir="rtl"] td {
+    text-align: right;
+}
+
+/* ─── Scrollbar Position ────────────────────────────────── */
+[dir="rtl"] ::-webkit-scrollbar {
+    direction: rtl;
+}
+
+/* ─── Select / Dropdown Arrow ───────────────────────────── */
+[dir="rtl"] select {
+    background-position: left 0.5rem center;
+    padding-left: 2rem;
+    padding-right: 0.75rem;
+}
+
+/* ─── Utility: Prevent RTL on specific elements ─────────── */
+.no-rtl,
+[dir="rtl"] .no-rtl {
+    direction: ltr !important;
+    text-align: left !important;
+}
+
+/* Map containers should never flip */
+[dir="rtl"] .mapboxgl-map,
+[dir="rtl"] .map-container,
+[dir="rtl"] .map-fullscreen {
+    direction: ltr;
+}
+
+/* ─── RTL Indicator (optional debug helper) ─────────────── */
+html.rtl-active::after {
+    content: "";
+    /* Uncomment below for debug RTL indicator:
+  content: "RTL";
+  position: fixed;
+  bottom: 8px;
+  left: 8px;
+  background: #f59e0b;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: bold;
+  z-index: 9999;
+  */
+}

@@ -1,35 +1,42 @@
 // src/hooks/useT.js
-import { useContext, useState, useEffect } from "react";
+// Enhanced Translation Hook — Phase 11 (Key Mapping Support)
+//
+// Usage:
+//   import { useT } from '../hooks/useT';
+//   import { TK } from '../constants/translationKeys';
+//
+//   const title = useT(TK.ROUTING_TITLE);   // key-based
+//   const label = useT("Custom Label");       // raw string (still works)
+
+import { useContext, useState, useEffect, useRef, useCallback } from "react";
 import { LanguageContext } from "../context/LanguageContext";
 
 export function useT(text) {
   const { translateUI, lang } = useContext(LanguageContext);
   const [translated, setTranslated] = useState(text);
+  const activeRef = useRef(true);
 
   useEffect(() => {
-    let active = true;
-    
+    activeRef.current = true;
+
     // Skip translation for empty text or English
     if (!text || lang === "en") {
       setTranslated(text);
       return;
     }
-    
-    translateUI(text).then((res) => {
-      if (active) {
-        setTranslated(res);
-      }
-    }).catch((error) => {
-      // Translation hook error
-      if (active) {
-        setTranslated(text); // Fallback to original text
-      }
-    });
 
-    return () => { 
-      active = false; 
+    translateUI(text)
+      .then((res) => {
+        if (activeRef.current) setTranslated(res);
+      })
+      .catch(() => {
+        if (activeRef.current) setTranslated(text); // fallback
+      });
+
+    return () => {
+      activeRef.current = false;
     };
-  }, [text, translateUI, lang]);
+  }, [text, lang]); // removed translateUI from deps to prevent re-render storms
 
   return translated;
 }
@@ -39,11 +46,12 @@ export function useTBatch(texts) {
   const { translateUIBatch, lang } = useContext(LanguageContext);
   const [translated, setTranslated] = useState(texts);
   const [loading, setLoading] = useState(false);
+  const activeRef = useRef(true);
+  const textsKey = Array.isArray(texts) ? texts.join('|') : '';
 
   useEffect(() => {
-    let active = true;
-    
-    // Skip translation for empty array or English
+    activeRef.current = true;
+
     if (!texts || !Array.isArray(texts) || lang === "en") {
       setTranslated(texts);
       setLoading(false);
@@ -51,30 +59,41 @@ export function useTBatch(texts) {
     }
 
     setLoading(true);
-    
-    translateUIBatch(texts).then((res) => {
-      if (active) {
-        setTranslated(res);
-        setLoading(false);
-      }
-    }).catch((error) => {
-      // Batch translation hook error
-      if (active) {
-        setTranslated(texts); // Fallback to original texts
-        setLoading(false);
-      }
-    });
 
-    return () => { 
-      active = false; 
+    translateUIBatch(texts)
+      .then((res) => {
+        if (activeRef.current) {
+          setTranslated(res);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (activeRef.current) {
+          setTranslated(texts); // fallback
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      activeRef.current = false;
     };
-  }, [texts, translateUIBatch, lang]);
+  }, [textsKey, lang]); // use stable key to avoid re-renders
 
   return { translated, loading };
 }
 
-// Simplified hook that returns just the translated text
-export function useTSimple(text) {
-  const { translated } = useT(text);
-  return translated;
+// Hook with preloading — call once per dashboard to warm cache
+export function useTPreload(textArray) {
+  const { preloadUI, lang } = useContext(LanguageContext);
+  const loadedRef = useRef('');
+
+  useEffect(() => {
+    const key = `${lang}:${textArray.length}`;
+    if (loadedRef.current === key) return; // already preloaded for this lang
+    loadedRef.current = key;
+
+    if (lang !== "en" && Array.isArray(textArray) && textArray.length > 0) {
+      preloadUI(textArray);
+    }
+  }, [lang, textArray, preloadUI]);
 }

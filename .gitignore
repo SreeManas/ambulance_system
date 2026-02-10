@@ -19,3 +19,9 @@ dist/
 src/legacy_incois_disaster/
 server/.env
 server/serviceAccountKey.json
+
+# Backup and temporary files
+*.bak
+*.backup
+*.tmp
+*~

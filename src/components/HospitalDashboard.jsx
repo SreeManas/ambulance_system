@@ -10,9 +10,211 @@ import {
     serverTimestamp
 } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
-import { ChevronDown, ChevronUp, Plus, Edit2, Trash2, Save, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Plus, Edit2, Trash2, Save, X, AlertTriangle, FileText } from 'lucide-react';
+import HospitalExtendedProfileForm, { defaultExtendedProfile } from './HospitalExtendedProfileForm';
+import HospitalProfileView from './HospitalProfileView';
+import { useTPreload, useTBatch, useT } from "../hooks/useT";
+import { PRELOAD_HOSPITAL } from "../constants/translationKeys";
+
+// Sprint-2: Default schema to prevent crashes from undefined fields
+const defaultHospitalSchema = {
+    basicInfo: { name: '', hospitalType: 'general', traumaLevel: 'none', address: '', phone: '', location: { latitude: 0, longitude: 0 } },
+    clinicalCapabilities: { strokeCenter: false, emergencySurgery: false, ctScanAvailable: false, mriAvailable: false, radiology24x7: false },
+    serviceAvailability: { emergency24x7: true, surgery24x7: false, radiology24x7: false, lab24x7: false },
+    caseAcceptance: { acceptsTrauma: true, acceptsCardiac: true, acceptsBurns: false, acceptsPediatric: true, acceptsInfectious: false },
+    specialists: { cardiologist: 0, neurologist: 0, traumaSurgeon: 0, radiologist: 0, pulmonologist: 0, burnSpecialist: 0 },
+    equipment: { ventilators: { total: 0, available: 0 }, defibrillators: 0, dialysisMachines: 0, portableXRay: 0, ultrasound: 0 },
+    bedAvailability: { total: 0, available: 0, icu: { total: 0, available: 0 }, emergency: { total: 0, available: 0 }, traumaBeds: { total: 0, available: 0 }, isolationBeds: { total: 0, available: 0 }, pediatricBeds: { total: 0, available: 0 } },
+    emergencyReadiness: { status: 'accepting', diversionStatus: false, ambulanceQueue: 0 },
+    infectionControl: { negativePressureRooms: 0, infectiousDiseaseUnit: false },
+    supportFacilities: { helipadAvailable: false, pharmacy24x7: false },
+    transferCapability: { acceptsReferrals: true, maxTransferCapacityPerHour: 0 },
+    performanceMetrics: { averageAmbulanceHandoverTime: 0, emergencyResponseRating: 3, survivalRateIndex: 0 },
+    capabilities: { specializations: [], hasTraumaCenter: false, hasICU: false, hasBurnUnit: false },
+    extendedProfile: {
+        accreditation: [],
+        traumaCertifications: [],
+        emergencyCertifications: [],
+        insurancePartners: [],
+        cashlessAvailable: false,
+        governmentSchemesAccepted: [],
+        emergencyCoordinators: [],
+        specialPrograms: [],
+        helipadDetails: { available: false, nightLanding: false },
+        disasterPreparednessLevel: 'basic',
+        medicoLegalReady: false,
+        policeCaseHandling: false,
+        hospitalNotes: '',
+        lastProfileUpdated: null,
+        updatedBy: ''
+    }
+};
+
+// Sprint-2: Deep merge helper to safely combine schema defaults with loaded data
+function deepMerge(target, source) {
+    const result = { ...target };
+    for (const key in source) {
+        if (source[key] !== null && source[key] !== undefined) {
+            if (typeof source[key] === 'object' && !Array.isArray(source[key]) && typeof target[key] === 'object' && !Array.isArray(target[key])) {
+                result[key] = deepMerge(target[key] || {}, source[key]);
+            } else {
+                result[key] = source[key];
+            }
+        }
+    }
+    return result;
+}
+
+// =============================================================================
+// SPECIALISTS NORMALIZATION (Crash Hardening)
+// =============================================================================
+
+const IS_DEV = typeof window !== 'undefined' && window.location?.hostname === 'localhost';
+
+// Default specialist structure with all known types
+const DEFAULT_SPECIALISTS = {
+    cardiologist: 0,
+    neurologist: 0,
+    traumaSurgeon: 0,
+    radiologist: 0,
+    pulmonologist: 0,
+    burnSpecialist: 0,
+    orthopedicSurgeon: 0,
+    anesthesiologist: 0,
+    emergencyPhysician: 0,
+    pediatrician: 0
+};
+
+/**
+ * Safely extracts a numeric value from any input type
+ * Handles: number, {available, count, total}, undefined, null, NaN, string
+ */
+function safeSpecialistCount(value) {
+    if (value === null || value === undefined) return 0;
+    if (typeof value === 'number') return isNaN(value) ? 0 : Math.max(0, Math.round(value));
+    if (typeof value === 'object' && !Array.isArray(value)) {
+        // Extract from nested object structures: {available, count, total}
+        const num = value.available ?? value.count ?? value.total ?? 0;
+        return typeof num === 'number' && !isNaN(num) ? Math.max(0, Math.round(num)) : 0;
+    }
+    if (typeof value === 'string') {
+        const parsed = parseInt(value, 10);
+        return isNaN(parsed) ? 0 : Math.max(0, parsed);
+    }
+    return 0;
+}
+
+/**
+ * Normalizes specialists data from any Firestore format to a safe, uniform structure
+ * Handles: undefined, null, object with numbers, object with nested objects, array (legacy)
+ */
+function normalizeSpecialists(specialists) {
+    // Start with defaults
+    const normalized = { ...DEFAULT_SPECIALISTS };
+
+    // Guard: undefined, null, or non-object input
+    if (!specialists || typeof specialists !== 'object') {
+        if (IS_DEV) console.log('normalizeSpecialists: Invalid input, using defaults', specialists);
+        return normalized;
+    }
+
+    // Guard: Legacy array format
+    if (Array.isArray(specialists)) {
+        if (IS_DEV) console.warn('normalizeSpecialists: Array format detected (legacy)', specialists);
+        // Try to parse array of {type, count} objects
+        specialists.forEach(item => {
+            if (item && typeof item === 'object' && item.type && DEFAULT_SPECIALISTS.hasOwnProperty(item.type)) {
+                normalized[item.type] = safeSpecialistCount(item.count || item.available || 1);
+            }
+        });
+        return normalized;
+    }
+
+    // Normal object format - extract counts safely
+    Object.keys(DEFAULT_SPECIALISTS).forEach(specType => {
+        if (specialists.hasOwnProperty(specType)) {
+            normalized[specType] = safeSpecialistCount(specialists[specType]);
+        }
+    });
+
+    // Handle any additional specialist types not in defaults
+    Object.keys(specialists).forEach(specType => {
+        if (!DEFAULT_SPECIALISTS.hasOwnProperty(specType)) {
+            normalized[specType] = safeSpecialistCount(specialists[specType]);
+        }
+    });
+
+    if (IS_DEV) console.log('normalizeSpecialists:', normalized);
+
+    return normalized;
+}
+
+// Sprint-2: ErrorBoundary for graceful error handling
+class ErrorBoundary extends React.Component {
+    constructor(props) {
+        super(props);
+        this.state = { hasError: false, error: null };
+    }
+
+    static getDerivedStateFromError(error) {
+        return { hasError: true, error };
+    }
+
+    componentDidCatch(error, errorInfo) {
+        console.error('HospitalDashboard Error:', error, errorInfo);
+    }
+
+    render() {
+        if (this.state.hasError) {
+            return (
+                <div className="p-6 bg-red-900/20 border border-red-500 rounded-lg m-4">
+                    <div className="flex items-center gap-2 text-red-400 mb-2">
+                        <AlertTriangle className="w-5 h-5" />
+                        <span className="font-semibold">{H?.somethingWrong || "Something went wrong"}</span>
+                    </div>
+                    <p className="text-gray-400 text-sm">{this.state.error?.message || 'An unexpected error occurred'}</p>
+                    <button
+                        onClick={() => this.setState({ hasError: false, error: null })}
+                        className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                    >
+                        Try Again
+                    </button>
+                </div>
+            );
+        }
+        return this.props.children;
+    }
+}
+
+const HOSPITAL_LABELS = [
+    "Hospital Capability Dashboard", "Decision intelligence for AI-powered emergency routing",
+    "Add Hospital", "Edit Hospital", "Add New Hospital",
+    "Saving...", "Update Hospital", "Cancel",
+    "Something went wrong", "Hospital Name", "Hospital Type",
+    "Trauma Level", "Phone", "Address", "Latitude", "Longitude",
+    "Status", "Accepting", "Diverting", "Full",
+    "Trauma Center", "General Hospital", "Cardiac Specialty", "Pediatric",
+    "Burn Center", "Specialty", "None",
+    "Clinical Capabilities", "Case Acceptance", "Specialists", "available"
+];
 
 export default function HospitalDashboard() {
+    // Phase 10: Preload translations for this dashboard
+    useTPreload(PRELOAD_HOSPITAL);
+
+    // Phase 5: Batch translate all static UI labels
+    const { translated: ht } = useTBatch(HOSPITAL_LABELS);
+    const H = {
+        title: ht[0], subtitle: ht[1],
+        addHospital: ht[2], editHospital: ht[3], addNewHospital: ht[4],
+        saving: ht[5], updateHospital: ht[6], cancel: ht[7],
+        somethingWrong: ht[8], hospitalName: ht[9], hospitalType: ht[10],
+        traumaLevel: ht[11], phone: ht[12], address: ht[13], latitude: ht[14], longitude: ht[15],
+        status: ht[16], accepting: ht[17], diverting: ht[18], full: ht[19],
+        traumaCenter: ht[20], generalHospital: ht[21], cardiacSpecialty: ht[22], pediatric: ht[23],
+        burnCenter: ht[24], specialty: ht[25], none: ht[26],
+        clinicalCapabilities: ht[27], caseAcceptance: ht[28], specialists: ht[29], available: ht[30]
+    };
     const [hospitals, setHospitals] = useState([]);
     const [showAddForm, setShowAddForm] = useState(false);
     const [editingId, setEditingId] = useState(null);
@@ -24,15 +226,24 @@ export default function HospitalDashboard() {
     const db = getFirestore();
     const auth = getAuth();
 
-    // Real-time Firebase sync
+    // Real-time Firebase sync with Sprint-2 schema guards
     useEffect(() => {
         const unsubscribe = onSnapshot(
             collection(db, 'hospitals'),
             (snapshot) => {
-                const hospitalData = snapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data()
-                }));
+                const hospitalData = snapshot.docs.map(docSnap => {
+                    // Sprint-2: Safely merge loaded data with default schema
+                    const rawData = docSnap.data() || {};
+                    const safeData = deepMerge(defaultHospitalSchema, rawData);
+
+                    // Crash Hardening: Normalize specialists to prevent dropdown crashes
+                    safeData.specialists = normalizeSpecialists(safeData.specialists);
+
+                    return {
+                        id: docSnap.id,
+                        ...safeData
+                    };
+                });
                 setHospitals(hospitalData);
             },
             (error) => {
@@ -131,7 +342,9 @@ export default function HospitalDashboard() {
                 averageAmbulanceHandoverTime: 0,
                 emergencyResponseRating: 3,
                 survivalRateIndex: 0
-            }
+            },
+            // Extended Profile
+            extendedProfile: { ...defaultExtendedProfile }
         };
     }
 
@@ -142,9 +355,65 @@ export default function HospitalDashboard() {
         }));
     };
 
+    // Phase 6B: Geo-Integrity Validation
+    const validateGeoLocation = () => {
+        const lat = formData.basicInfo?.location?.latitude;
+        const lng = formData.basicInfo?.location?.longitude;
+
+        if (!lat || !lng || lat === 0 || lng === 0) {
+            return { valid: false, error: 'Latitude and longitude are required for routing' };
+        }
+
+        // Validate India bounds (rough)
+        if (lat < 6 || lat > 38 || lng < 68 || lng > 98) {
+            return { valid: false, error: 'Location must be within India coordinates' };
+        }
+
+        return { valid: true };
+    };
+
+    // Phase 7B: Capacity Auto-Normalization Engine
+    const normalizeCapacity = (data) => {
+        const normalized = JSON.parse(JSON.stringify(data));
+
+        // Beds normalization - available cannot exceed total
+        if (normalized.bedAvailability) {
+            const beds = normalized.bedAvailability;
+            if (beds.available > beds.total) beds.available = beds.total;
+
+            ['icu', 'emergency', 'traumaBeds', 'isolationBeds', 'pediatricBeds'].forEach(key => {
+                if (beds[key]?.available > beds[key]?.total) {
+                    beds[key].available = beds[key].total;
+                }
+            });
+        }
+
+        // Equipment normalization
+        if (normalized.equipment?.ventilators) {
+            if (normalized.equipment.ventilators.available > normalized.equipment.ventilators.total) {
+                normalized.equipment.ventilators.available = normalized.equipment.ventilators.total;
+            }
+        }
+
+        // Ambulance queue bounds (0-50)
+        if (normalized.emergencyReadiness) {
+            const queue = normalized.emergencyReadiness.ambulanceQueue ?? 0;
+            normalized.emergencyReadiness.ambulanceQueue = Math.max(0, Math.min(50, queue));
+        }
+
+        return normalized;
+    };
+
     const validateForm = () => {
         if (!formData.basicInfo.name || !formData.basicInfo.address || !formData.basicInfo.phone) {
             setError('Name, address, and phone are required');
+            return false;
+        }
+
+        // Phase 6B: Geo validation
+        const geoCheck = validateGeoLocation();
+        if (!geoCheck.valid) {
+            setError(geoCheck.error);
             return false;
         }
 
@@ -181,8 +450,11 @@ export default function HospitalDashboard() {
             const user = auth.currentUser;
             if (!user) throw new Error('Must be logged in');
 
+            // Phase 7B: Apply auto-normalization before saving
+            const normalizedData = normalizeCapacity(formData);
+
             const hospitalData = {
-                ...formData,
+                ...normalizedData,
                 capacityLastUpdated: serverTimestamp(),
                 lastUpdated: serverTimestamp(),
                 updatedBy: user.uid
@@ -246,9 +518,9 @@ export default function HospitalDashboard() {
         <div className="container mx-auto p-6 max-w-7xl">
             <div className="mb-8 flex items-center justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold text-gray-900">Hospital Capability Dashboard</h1>
+                    <h1 className="text-3xl font-bold text-gray-900">{H.title}</h1>
                     <p className="text-sm text-gray-600 mt-2">
-                        Decision intelligence for AI-powered emergency routing
+                        {H.subtitle}
                     </p>
                 </div>
                 <button
@@ -260,7 +532,7 @@ export default function HospitalDashboard() {
                     className="btn btn-primary flex items-center gap-2"
                 >
                     <Plus className="w-4 h-4" />
-                    Add Hospital
+                    {H.addHospital}
                 </button>
             </div>
 
@@ -275,7 +547,7 @@ export default function HospitalDashboard() {
                 <div className="mb-8 card p-6 border-2 border-blue-200 shadow-lg">
                     <div className="flex items-center justify-between mb-6">
                         <h2 className="text-2xl font-bold text-gray-900">
-                            {editingId ? 'Edit Hospital' : 'Add New Hospital'}
+                            {editingId ? H.editHospital : H.addNewHospital}
                         </h2>
                         <button
                             onClick={() => {
@@ -295,7 +567,7 @@ export default function HospitalDashboard() {
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                                        Hospital Name <span className="text-red-500">*</span>
+                                        {H.hospitalName} <span className="text-red-500">*</span>
                                     </label>
                                     <input
                                         type="text"
@@ -307,31 +579,31 @@ export default function HospitalDashboard() {
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                                        Hospital Type <span className="text-red-500">*</span>
+                                        {H.hospitalType} <span className="text-red-500">*</span>
                                     </label>
                                     <select
                                         className="input"
                                         value={formData.basicInfo.hospitalType}
                                         onChange={(e) => updateNestedField('basicInfo.hospitalType', e.target.value)}
                                     >
-                                        <option value="trauma_center">Trauma Center</option>
-                                        <option value="general">General Hospital</option>
-                                        <option value="cardiac">Cardiac Specialty</option>
-                                        <option value="pediatric">Pediatric</option>
-                                        <option value="burn">Burn Center</option>
-                                        <option value="specialty">Specialty</option>
+                                        <option value="trauma_center">{H.traumaCenter}</option>
+                                        <option value="general">{H.generalHospital}</option>
+                                        <option value="cardiac">{H.cardiacSpecialty}</option>
+                                        <option value="pediatric">{H.pediatric}</option>
+                                        <option value="burn">{H.burnCenter}</option>
+                                        <option value="specialty">{H.specialty}</option>
                                     </select>
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                                        Trauma Level
+                                        {H.traumaLevel}
                                     </label>
                                     <select
                                         className="input"
                                         value={formData.basicInfo.traumaLevel}
                                         onChange={(e) => updateNestedField('basicInfo.traumaLevel', e.target.value)}
                                     >
-                                        <option value="none">None</option>
+                                        <option value="none">{H.none}</option>
                                         <option value="level_1">Level 1</option>
                                         <option value="level_2">Level 2</option>
                                         <option value="level_3">Level 3</option>
@@ -339,7 +611,7 @@ export default function HospitalDashboard() {
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                                        Phone <span className="text-red-500">*</span>
+                                        {H.phone} <span className="text-red-500">*</span>
                                     </label>
                                     <input
                                         type="tel"
@@ -351,7 +623,7 @@ export default function HospitalDashboard() {
                                 </div>
                                 <div className="md:col-span-2">
                                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                                        Address <span className="text-red-500">*</span>
+                                        {H.address} <span className="text-red-500">*</span>
                                     </label>
                                     <input
                                         type="text"
@@ -362,7 +634,7 @@ export default function HospitalDashboard() {
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">Latitude</label>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">{H.latitude}</label>
                                     <input
                                         type="number"
                                         step="0.0001"
@@ -372,7 +644,7 @@ export default function HospitalDashboard() {
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">Longitude</label>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">{H.longitude}</label>
                                     <input
                                         type="number"
                                         step="0.0001"
@@ -622,7 +894,7 @@ export default function HospitalDashboard() {
                         <Section title="🚨 Emergency Readiness">
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">{H.status}</label>
                                     <select
                                         className="input"
                                         value={formData.emergencyReadiness.status}
@@ -631,9 +903,9 @@ export default function HospitalDashboard() {
                                             updateNestedField('emergencyReadiness.diversionStatus', e.target.value === 'diverting');
                                         }}
                                     >
-                                        <option value="accepting">Accepting</option>
-                                        <option value="diverting">Diverting</option>
-                                        <option value="full">Full</option>
+                                        <option value="accepting">{H.accepting}</option>
+                                        <option value="diverting">{H.diverting}</option>
+                                        <option value="full">{H.full}</option>
                                     </select>
                                 </div>
                                 <NumberField
@@ -726,6 +998,19 @@ export default function HospitalDashboard() {
                             </div>
                         </Section>
 
+                        {/* Section 13: Extended Profile */}
+                        <Section title="📋 Extended Profile (Optional)">
+                            <p className="text-gray-500 text-sm mb-4">
+                                Add accreditations, emergency coordinators, and compliance information.
+                            </p>
+                            <HospitalExtendedProfileForm
+                                hospital={editingId ? { id: editingId, ...formData } : null}
+                                embedded={true}
+                                profile={formData.extendedProfile}
+                                onProfileChange={(updatedProfile) => updateNestedField('extendedProfile', updatedProfile)}
+                            />
+                        </Section>
+
                         <div className="flex items-center gap-3 pt-4">
                             <button
                                 type="submit"
@@ -733,7 +1018,7 @@ export default function HospitalDashboard() {
                                 disabled={loading}
                             >
                                 <Save className="w-4 h-4" />
-                                {loading ? 'Saving...' : (editingId ? 'Update Hospital' : 'Add Hospital')}
+                                {loading ? H.saving : (editingId ? H.updateHospital : H.addHospital)}
                             </button>
                             <button
                                 type="button"
@@ -744,7 +1029,7 @@ export default function HospitalDashboard() {
                                 }}
                                 className="btn bg-gray-200 hover:bg-gray-300 text-gray-800"
                             >
-                                Cancel
+                                {H.cancel}
                             </button>
                         </div>
                     </form>
@@ -840,6 +1125,45 @@ export default function HospitalDashboard() {
                                         <CountBadge label="Burn Specialists" value={hospital.specialists?.burnSpecialist} />
                                     </div>
                                 </CollapsibleSection>
+
+                                {/* Extended Profile Section */}
+                                <CollapsibleSection
+                                    title="📋 Extended Profile"
+                                    isOpen={expandedSections[`${hospital.id}-extended`]}
+                                    onToggle={() => toggleSection(hospital.id, 'extended')}
+                                >
+                                    <HospitalProfileView
+                                        hospital={hospital}
+                                        onEdit={() => {
+                                            setEditingId(hospital.id);
+                                            setExpandedSections(prev => ({
+                                                ...prev,
+                                                [`${hospital.id}-extended-edit`]: true
+                                            }));
+                                        }}
+                                    />
+                                </CollapsibleSection>
+
+                                {/* Extended Profile Edit Modal */}
+                                {expandedSections[`${hospital.id}-extended-edit`] && (
+                                    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 overflow-y-auto">
+                                        <div className="max-h-[90vh] overflow-y-auto">
+                                            <HospitalExtendedProfileForm
+                                                hospital={hospital}
+                                                onClose={() => setExpandedSections(prev => ({
+                                                    ...prev,
+                                                    [`${hospital.id}-extended-edit`]: false
+                                                }))}
+                                                onUpdate={() => {
+                                                    setExpandedSections(prev => ({
+                                                        ...prev,
+                                                        [`${hospital.id}-extended-edit`]: false
+                                                    }));
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -950,10 +1274,30 @@ function Badge({ label, value }) {
     );
 }
 
+/**
+ * Hardened CountBadge - safely displays specialist counts
+ * Handles: number, object {total, available}, string, undefined, null
+ */
 function CountBadge({ label, value }) {
+    // Safe value extraction - handle any input type
+    let displayValue = 0;
+
+    if (typeof value === 'number' && !isNaN(value)) {
+        displayValue = value;
+    } else if (typeof value === 'object' && value !== null) {
+        // Handle {available, count, total} structures
+        displayValue = value.available ?? value.count ?? value.total ?? 0;
+        if (typeof displayValue !== 'number' || isNaN(displayValue)) {
+            displayValue = 0;
+        }
+    } else if (typeof value === 'string') {
+        const parsed = parseInt(value, 10);
+        displayValue = isNaN(parsed) ? 0 : parsed;
+    }
+
     return (
         <div className="px-3 py-1 bg-blue-50 text-blue-800 rounded text-xs font-medium">
-            {label}: {value || 0}
+            {label}: {displayValue}
         </div>
     );
 }

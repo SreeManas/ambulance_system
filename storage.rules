@@ -1,0 +1,37 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // ============================================
+    // Incident Photos for Emergency Cases
+    // Path: incidentPhotos/{caseId}/{fileName}
+    // - Authenticated users can read/write
+    // ============================================
+    match /incidentPhotos/{caseId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+                   && request.resource.size < 10 * 1024 * 1024  // Max 10MB
+                   && request.resource.contentType.matches('image/.*');
+    }
+    
+    // ============================================
+    // User Profile Photos
+    // Path: profilePhotos/{userId}/{fileName}
+    // ============================================
+    match /profilePhotos/{userId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // ============================================
+    // Hospital Documents
+    // Path: hospitalDocs/{hospitalId}/{fileName}
+    // ============================================
+    match /hospitalDocs/{hospitalId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+
+  }
+}

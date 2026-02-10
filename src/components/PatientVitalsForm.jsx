@@ -1,8 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import offlineSync from '../utils/offlineSync.js';
 import { getFirestore, addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { getAuth } from 'firebase/auth';
 import { useT } from '../hooks/useT.js';
+import CameraCapture from './CameraCapture.jsx';
+import { Camera, X, Image as ImageIcon } from 'lucide-react';
 
 // Translation keys
 const TRANSLATIONS = {
@@ -116,6 +119,11 @@ export default function PatientVitalsForm() {
     const [loading, setLoading] = useState(false);
     const [validationErrors, setValidationErrors] = useState({});
 
+    // Sprint-2: Incident Photo Capture State
+    const [showCamera, setShowCamera] = useState(false);
+    const [capturedPhotos, setCapturedPhotos] = useState([]); // Array of { blob, preview, file }
+    const [uploadingPhotos, setUploadingPhotos] = useState(false);
+
     // Translation hooks
     const tPatientIntake = useT(TRANSLATIONS.patientIntake);
     const tSubmitCase = useT(TRANSLATIONS.submitCase);
@@ -148,6 +156,85 @@ export default function PatientVitalsForm() {
                 }
             );
         });
+    };
+
+    // Sprint-2: Photo capture handlers
+    const handlePhotoCaptured = (photoData) => {
+        // photoData can be a File, Blob, or object with file property
+        const file = photoData?.file || photoData;
+        if (file && (file instanceof Blob || file instanceof File)) {
+            const preview = URL.createObjectURL(file);
+            setCapturedPhotos(prev => [...prev, {
+                file,
+                preview,
+                timestamp: Date.now()
+            }]);
+        }
+        setShowCamera(false);
+    };
+
+    const removePhoto = (index) => {
+        setCapturedPhotos(prev => {
+            const newPhotos = [...prev];
+            // Revoke the object URL to prevent memory leaks
+            if (newPhotos[index]?.preview) {
+                URL.revokeObjectURL(newPhotos[index].preview);
+            }
+            newPhotos.splice(index, 1);
+            return newPhotos;
+        });
+    };
+
+    // MF4: File validation constants
+    const MAX_PHOTO_SIZE_MB = 10;
+    const ALLOWED_PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'];
+
+    const validatePhoto = (photo) => {
+        if (!photo?.file) return { valid: false, error: 'No file data' };
+        const sizeMB = (photo.file.size || photo.file.byteLength || 0) / (1024 * 1024);
+        if (sizeMB > MAX_PHOTO_SIZE_MB) {
+            return { valid: false, error: `File too large (${sizeMB.toFixed(1)}MB, max ${MAX_PHOTO_SIZE_MB}MB)` };
+        }
+        // Blob from camera may not have type — allow it
+        if (photo.file.type && !ALLOWED_PHOTO_TYPES.includes(photo.file.type)) {
+            return { valid: false, error: `Unsupported type: ${photo.file.type}` };
+        }
+        return { valid: true };
+    };
+
+    const uploadPhotosToStorage = async (caseId) => {
+        if (capturedPhotos.length === 0) return [];
+
+        setUploadingPhotos(true);
+        const storage = getStorage();
+        const uploadedUrls = [];
+
+        try {
+            for (const photo of capturedPhotos) {
+                // MF4: Validate before upload
+                const validation = validatePhoto(photo);
+                if (!validation.valid) {
+                    console.warn('Skipping invalid photo:', validation.error);
+                    continue;
+                }
+
+                const fileName = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}.jpg`;
+                const storagePath = `incidentPhotos/${caseId}/${fileName}`;
+                const storageRef = ref(storage, storagePath);
+
+                await uploadBytes(storageRef, photo.file);
+                const downloadUrl = await getDownloadURL(storageRef);
+                uploadedUrls.push(downloadUrl);
+            }
+        } catch (error) {
+            console.error('Photo upload error:', error);
+            // MF4: Storage failure should NOT block case submission
+            // Photos that uploaded successfully are still included
+        } finally {
+            setUploadingPhotos(false);
+        }
+
+        return uploadedUrls;
     };
 
     const validateForm = () => {
@@ -293,9 +380,22 @@ export default function PatientVitalsForm() {
             acuityLevel: null,
 
             // Case Status
-            caseStatus: 'intake_completed'
+            caseStatus: 'intake_completed',
+
+            // MF4: Incident Photos — uploaded atomically before case write
+            incidentPhotos: []
         };
 
+        // MF4: Upload photos FIRST, then write case with URLs included
+        if (capturedPhotos.length > 0) {
+            const tempId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            const photoUrls = await uploadPhotosToStorage(tempId);
+            if (photoUrls.length > 0) {
+                caseData.incidentPhotos = photoUrls;
+            }
+        }
+
+        // Single atomic Firestore write with photo URLs already attached
         await addDoc(collection(db, 'emergencyCases'), caseData);
     };
 
@@ -316,8 +416,24 @@ export default function PatientVitalsForm() {
             setStatus(tLocationDetected);
 
             if (navigator.onLine) {
-                await submitOnline(locationCoords);
-                setStatus(tCaseSubmitted);
+                try {
+                    await submitOnline(locationCoords);
+                    setStatus(tCaseSubmitted);
+                } catch (submitError) {
+                    // MF9: Only queue on Firestore write failure, not Storage failure
+                    if (submitError.code === 'unavailable' || submitError.code === 'permission-denied' ||
+                        submitError.message?.includes('offline') || !navigator.onLine) {
+                        console.warn('Firestore unavailable, queuing for later sync');
+                        await offlineSync.enqueueReport({
+                            type: 'emergencyCase',
+                            data: { age, gender, heartRate, spo2, emergencyType },
+                            coords: locationCoords
+                        });
+                        setStatus(tOfflineQueued);
+                    } else {
+                        throw submitError; // Re-throw non-connectivity errors
+                    }
+                }
             } else {
                 await offlineSync.enqueueReport({
                     type: 'emergencyCase',
@@ -331,7 +447,7 @@ export default function PatientVitalsForm() {
             resetForm();
         } catch (error) {
             console.error('Submission failed:', error);
-            setStatus(`Error: ${error.message}. Case queued for later sync.`);
+            setStatus(`Error: ${error.message}`);
         } finally {
             setLoading(false);
         }
@@ -871,6 +987,52 @@ export default function PatientVitalsForm() {
                     />
                 </section>
 
+                {/* Sprint-2: Section 11 - Incident Photo Capture */}
+                <section className="border border-gray-200 rounded-lg p-5 bg-gradient-to-r from-amber-50 to-yellow-50">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                        <Camera className="w-5 h-5 text-amber-600" />
+                        Incident Photo Documentation
+                    </h3>
+
+                    {/* Photo Grid */}
+                    {capturedPhotos.length > 0 && (
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                            {capturedPhotos.map((photo, index) => (
+                                <div key={photo.timestamp} className="relative group">
+                                    <img
+                                        src={photo.preview}
+                                        alt={`Incident photo ${index + 1}`}
+                                        className="w-full h-24 object-cover rounded-lg border border-amber-200"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => removePhoto(index)}
+                                        className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                    >
+                                        <X className="w-4 h-4" />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Capture Button */}
+                    <button
+                        type="button"
+                        onClick={() => setShowCamera(true)}
+                        className="flex items-center gap-2 px-4 py-3 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors w-full justify-center"
+                    >
+                        <Camera className="w-5 h-5" />
+                        {capturedPhotos.length === 0 ? 'Capture Incident Photo' : 'Add Another Photo'}
+                    </button>
+
+                    {capturedPhotos.length > 0 && (
+                        <p className="text-xs text-amber-700 mt-2 text-center">
+                            {capturedPhotos.length} photo{capturedPhotos.length > 1 ? 's' : ''} captured
+                        </p>
+                    )}
+                </section>
+
                 {/* GPS Auto-Capture Notice */}
                 <div className="p-4 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg border border-green-200">
                     <div className="flex items-center gap-3">
@@ -883,6 +1045,30 @@ export default function PatientVitalsForm() {
                         </div>
                     </div>
                 </div>
+
+                {/* Camera Modal */}
+                {showCamera && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+                        <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-auto">
+                            <div className="p-4 border-b flex items-center justify-between">
+                                <h4 className="text-lg font-semibold">Capture Incident Photo</h4>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowCamera(false)}
+                                    className="p-2 hover:bg-gray-100 rounded-lg"
+                                >
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
+                            <div className="p-4">
+                                <CameraCapture
+                                    onPhotoCaptured={handlePhotoCaptured}
+                                    onClose={() => setShowCamera(false)}
+                                />
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* Submit Button */}
                 <button
@@ -911,10 +1097,10 @@ export default function PatientVitalsForm() {
                 {/* Status Messages */}
                 {status && (
                     <div className={`p-4 rounded-lg border ${status.includes('successfully') || status.includes('Offline')
-                            ? 'bg-green-50 border-green-200 text-green-800'
-                            : status.includes('Error') || status.includes('fix validation')
-                                ? 'bg-red-50 border-red-200 text-red-800'
-                                : 'bg-blue-50 border-blue-200 text-blue-800'
+                        ? 'bg-green-50 border-green-200 text-green-800'
+                        : status.includes('Error') || status.includes('fix validation')
+                            ? 'bg-red-50 border-red-200 text-red-800'
+                            : 'bg-blue-50 border-blue-200 text-blue-800'
                         }`}>
                         <div className="flex items-center gap-2">
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -1,10 +1,10 @@
 // src/components/auth/AuthProvider.jsx
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { 
-  getAuth, 
-  onAuthStateChanged, 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword, 
+import {
+  getAuth,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
   signOut,
   GoogleAuthProvider,
   signInWithPopup
@@ -17,14 +17,39 @@ export function useAuth() {
   return useContext(AuthCtx);
 }
 
+// Legacy role migration map - convert old hazard roles to EMS roles
+const ROLE_MIGRATION = {
+  citizen: 'paramedic',
+  analyst: 'hospital_admin',
+  official: 'command_center'
+};
+
+// Valid EMS roles
+const VALID_ROLES = ['paramedic', 'hospital_admin', 'command_center', 'dispatcher', 'admin'];
+
+// Default role for new users
+const DEFAULT_ROLE = 'paramedic';
+
 export default function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null);
-  const [role, setRole] = useState('citizen');
+  const [role, setRole] = useState(DEFAULT_ROLE);
   const [loading, setLoading] = useState(true);
+
+  // Helper to normalize/migrate role
+  const normalizeRole = (rawRole) => {
+    if (!rawRole) return DEFAULT_ROLE;
+    // Migrate legacy roles
+    if (ROLE_MIGRATION[rawRole]) return ROLE_MIGRATION[rawRole];
+    // Check if valid EMS role
+    if (VALID_ROLES.includes(rawRole)) return rawRole;
+    // Fallback
+    return DEFAULT_ROLE;
+  };
 
   useEffect(() => {
     const auth = getAuth();
     return onAuthStateChanged(auth, async (user) => {
+      console.log('onAuthStateChanged: User changed', user?.email);
       setCurrentUser(user);
       if (user) {
         try {
@@ -32,22 +57,35 @@ export default function AuthProvider({ children }) {
           const ref = doc(db, 'users', user.uid);
           const snap = await getDoc(ref);
           if (snap.exists()) {
-            setRole(snap.data()?.role || 'citizen');
+            const storedRole = snap.data()?.role;
+            console.log('onAuthStateChanged: Stored role from Firestore:', storedRole);
+            const normalizedRole = normalizeRole(storedRole);
+            console.log('onAuthStateChanged: Normalized role:', normalizedRole);
+
+            // Auto-migrate legacy roles in Firestore
+            if (storedRole !== normalizedRole) {
+              console.log(`Migrating role: ${storedRole} -> ${normalizedRole}`);
+              await setDoc(ref, { role: normalizedRole }, { merge: true });
+            }
+
+            setRole(normalizedRole);
           } else {
+            console.log('onAuthStateChanged: No user document, creating with default role');
             await setDoc(ref, {
-              role: 'citizen',
+              role: DEFAULT_ROLE,
               email: user.email || null,
               displayName: user.displayName || null,
               createdAt: new Date().toISOString()
             });
-            setRole('citizen');
+            setRole(DEFAULT_ROLE);
           }
         } catch (error) {
           console.error('Error setting up user:', error);
-          setRole('citizen');
+          setRole(DEFAULT_ROLE);
         }
       } else {
-        setRole('citizen');
+        console.log('onAuthStateChanged: No user, resetting to default role');
+        setRole(DEFAULT_ROLE);
       }
       setLoading(false);
     });
@@ -55,15 +93,30 @@ export default function AuthProvider({ children }) {
 
   const login = async (email, password) => {
     const auth = getAuth();
-    await signInWithEmailAndPassword(auth, email, password);
+    const cred = await signInWithEmailAndPassword(auth, email, password);
+
+    // Explicitly fetch and set role after login
+    const db = getFirestore();
+    const ref = doc(db, 'users', cred.user.uid);
+    const snap = await getDoc(ref);
+
+    if (snap.exists()) {
+      const storedRole = snap.data()?.role;
+      console.log('Login: User role from Firestore:', storedRole);
+      const normalizedRole = normalizeRole(storedRole);
+      setRole(normalizedRole);
+    } else {
+      console.log('Login: No user document found, using default role');
+      setRole(DEFAULT_ROLE);
+    }
   };
 
   const register = async (email, password, demoRole) => {
     const auth = getAuth();
     const cred = await createUserWithEmailAndPassword(auth, email, password);
     const db = getFirestore();
-    await setDoc(doc(db, 'users', cred.user.uid), { 
-      role: demoRole || 'citizen', 
+    await setDoc(doc(db, 'users', cred.user.uid), {
+      role: demoRole || DEFAULT_ROLE,
       email,
       createdAt: new Date().toISOString()
     });
@@ -72,36 +125,43 @@ export default function AuthProvider({ children }) {
   const signInWithGoogle = async () => {
     const auth = getAuth();
     const provider = new GoogleAuthProvider();
-    
+
     // Configure provider settings
     provider.setCustomParameters({
       prompt: 'select_account'
     });
-    
+
     try {
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
-      
+
       // Check if user document exists, create if not
       const db = getFirestore();
       const userDoc = doc(db, 'users', user.uid);
       const userSnap = await getDoc(userDoc);
-      
+
       if (!userSnap.exists()) {
-        await setDoc(userDoc, { 
-          role: 'citizen', 
+        await setDoc(userDoc, {
+          role: DEFAULT_ROLE,
           email: user.email,
           displayName: user.displayName,
           photoURL: user.photoURL,
           provider: 'google',
           createdAt: new Date().toISOString()
         });
+      } else {
+        // Migrate legacy role for existing Google users
+        const storedRole = userSnap.data()?.role;
+        const normalizedRole = normalizeRole(storedRole);
+        if (storedRole !== normalizedRole) {
+          await setDoc(userDoc, { role: normalizedRole }, { merge: true });
+        }
       }
-      
+
       return result;
     } catch (error) {
       console.error('Google sign-in failed:', error);
-      
+
       // Handle specific error cases
       if (error.code === 'auth/popup-blocked') {
         throw new Error('Popup was blocked. Please allow popups for this site and try again.');
@@ -120,14 +180,14 @@ export default function AuthProvider({ children }) {
     await signOut(auth);
   };
 
-  const value = { 
-    currentUser, 
-    role, 
-    login, 
-    register, 
-    logout, 
-    loading, 
-    signInWithGoogle 
+  const value = {
+    currentUser,
+    role,
+    login,
+    register,
+    logout,
+    loading,
+    signInWithGoogle
   };
 
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
