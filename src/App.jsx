@@ -63,9 +63,11 @@ const Nav = () => {
         {/* Left side - Logo and Brand */}
         <div className="flex items-center space-x-3">
           <Link to="/" className="flex items-center space-x-3 hover:scale-105 transition-transform duration-200">
-            <div className="w-10 h-10 bg-gradient-to-br from-red-600 to-red-800 rounded-xl flex items-center justify-center shadow-md hover:shadow-lg transition-shadow duration-200">
-              <span className="text-white font-bold text-sm">🚑</span>
-            </div>
+            <img
+              src="/logo.png"
+              alt="EMS Router Logo"
+              className="w-10 h-10 rounded-xl shadow-md hover:shadow-lg transition-shadow duration-200 object-contain"
+            />
             <div>
               <h1 className="text-xl font-bold text-gray-900">EMS Router</h1>
               <p className="text-xs text-gray-500 font-medium">{tEMSPlatform}</p>

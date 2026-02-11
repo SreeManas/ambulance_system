@@ -94,13 +94,14 @@ export default function LoginForm() {
       )}
 
       <div className="text-center">
-        <div className="w-16 h-16 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
-          <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-          </svg>
-        </div>
-        <div className="text-2xl font-bold text-gray-900 mb-2">Authorization</div>
-        <div className="text-gray-600">Access your EMS Router account</div>
+        <img
+          src="/logo.png"
+          alt="EMS Router Logo"
+          className="w-24 h-24 mx-auto mb-4 object-contain drop-shadow-lg"
+        />
+        <div className="text-2xl font-bold text-gray-900 mb-1">EMS Router</div>
+        <div className="text-sm text-gray-500 mb-2">AI-Powered Ambulance Triage & Smart Hospital Routing</div>
+        <div className="text-gray-600">Access your account</div>
       </div>
 
       {/* Mode Toggle */}
