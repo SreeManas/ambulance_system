@@ -70,7 +70,7 @@ const Nav = () => {
             />
             <div>
               <h1 className="text-xl font-bold text-gray-900">MEDROUTER</h1>
-              <p className="text-xs text-gray-500 font-medium">Routes that save lives</p>
+              <p className="text-xs text-gray-500 font-medium">Routes That Saves Lives</p>
             </div>
           </Link>
         </div>
@@ -337,7 +337,7 @@ export default function App() {
                             <span className="text-white font-bold text-lg">🚑</span>
                           </div>
                           <h2 className="text-2xl font-bold text-gray-900">MEDROUTER</h2>
-                          <p className="text-gray-600 mt-2">Routes that save lives</p>
+                          <p className="text-gray-600 mt-2">Routes That Saves Lives</p>
                         </div>
                         <div className="card">
                           <div className="card-body">
@@ -355,7 +355,7 @@ export default function App() {
                             <span className="text-white font-bold text-lg">🚑</span>
                           </div>
                           <h2 className="text-2xl font-bold text-gray-900">MEDROUTER</h2>
-                          <p className="text-gray-600 mt-2">Routes that save lives</p>
+                          <p className="text-gray-600 mt-2">Routes That Saves Lives</p>
                         </div>
                         <div className="card">
                           <div className="card-body">
@@ -374,9 +374,11 @@ export default function App() {
               <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 <div className="flex flex-col items-center">
                   <div className="flex items-center space-x-3 mb-4">
-                    <div className="w-8 h-8 bg-gradient-to-br from-red-600 to-red-800 rounded-lg flex items-center justify-center shadow-sm">
-                      <span className="text-white font-bold text-sm">🚑</span>
-                    </div>
+                    <img
+                      src="/logo.png"
+                      alt="MEDROUTER Logo"
+                      className="w-8 h-8 object-contain"
+                    />
                     <span className="text-lg font-semibold text-gray-900">MEDROUTER</span>
                   </div>
                   <div className="flex flex-col items-center space-y-2">
@@ -388,7 +390,7 @@ export default function App() {
                       <span className="text-red-600 hover:text-red-700 cursor-pointer font-medium">v2.0</span>
                     </div>
                     <p className="text-xs text-gray-500 text-center max-w-md">
-                      MEDROUTER — Routes that save lives
+                      MEDROUTER — Routes That Saves Lives
                     </p>
                   </div>
                 </div>

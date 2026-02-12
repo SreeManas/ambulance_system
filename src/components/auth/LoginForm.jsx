@@ -93,16 +93,7 @@ export default function LoginForm() {
         </div>
       )}
 
-      <div className="text-center">
-        <img
-          src="/logo.png"
-          alt="MEDROUTER Logo"
-          className="w-24 h-24 mx-auto mb-4 object-contain drop-shadow-lg"
-        />
-        <div className="text-2xl font-bold text-gray-900 mb-1">MEDROUTER</div>
-        <div className="text-sm text-gray-500 mb-2">Routes that save lives</div>
-        <div className="text-gray-600">Access your account</div>
-      </div>
+      {/* Branding removed - now shown in parent App.jsx */}
 
       {/* Mode Toggle */}
       <div className="flex bg-gray-100 rounded-xl p-1">

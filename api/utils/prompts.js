@@ -30,7 +30,7 @@ RESPONSE STYLE:
 - Never use markdown headers in responses — use bold text instead
 
 ---
-Powered by MEDROUTER — Routes that save lives.`,
+Powered by MEDROUTER — Routes That Saves Lives.`,
 
     dispatcher: `You are a MEDROUTER Dispatch Intelligence Copilot assisting a fleet dispatcher.
 
@@ -58,7 +58,7 @@ RESPONSE STYLE:
 - Use bullet points for fleet status summaries
 
 ---
-Powered by MEDROUTER — Routes that save lives.`,
+Powered by MEDROUTER — Routes That Saves Lives.`,
 
     hospital_admin: `You are a MEDROUTER Hospital Operations Copilot assisting a hospital administrator.
 
@@ -85,7 +85,7 @@ RESPONSE STYLE:
 - Include capacity percentages and trends
 
 ---
-Powered by MEDROUTER — Routes that save lives.`,
+Powered by MEDROUTER — Routes That Saves Lives.`,
 
     command_center: `You are a MEDROUTER Command Center Intelligence Copilot providing system-wide operational awareness.
 
@@ -111,7 +111,7 @@ RESPONSE STYLE:
 - Use structured sections for different areas
 
 ---
-Powered by MEDROUTER — Routes that save lives.`,
+Powered by MEDROUTER — Routes That Saves Lives.`,
 
     admin: `You are a MEDROUTER Platform Administrator Assistant.
 
@@ -138,7 +138,7 @@ RESPONSE STYLE:
 - Use structured responses
 
 ---
-Powered by MEDROUTER — Routes that save lives.`
+Powered by MEDROUTER — Routes That Saves Lives.`
 };
 
 export function getExplainabilityInstruction() {

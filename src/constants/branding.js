@@ -5,7 +5,7 @@
  */
 
 export const BRAND_NAME = "MEDROUTER";
-export const BRAND_TAGLINE = "Routes that save lives";
+export const BRAND_TAGLINE = "Routes That Saves Lives";
 export const BRAND_FULL = `${BRAND_NAME} — ${BRAND_TAGLINE}`;
 
 // For AI Copilot signature
