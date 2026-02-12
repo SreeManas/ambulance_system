@@ -333,9 +333,11 @@ export default function App() {
                     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
                       <div className="max-w-md w-full">
                         <div className="text-center mb-8">
-                          <div className="mx-auto w-12 h-12 bg-gradient-to-br from-red-500 to-red-600 rounded-lg flex items-center justify-center mb-4">
-                            <span className="text-white font-bold text-lg">🚑</span>
-                          </div>
+                          <img
+                            src="/logo.png"
+                            alt="MEDROUTER Logo"
+                            className="w-32 h-32 mx-auto mb-4 object-contain drop-shadow-lg"
+                          />
                           <h2 className="text-2xl font-bold text-gray-900">MEDROUTER</h2>
                           <p className="text-gray-600 mt-2">Routes That Saves Lives</p>
                         </div>
@@ -351,9 +353,11 @@ export default function App() {
                     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
                       <div className="max-w-md w-full">
                         <div className="text-center mb-8">
-                          <div className="mx-auto w-12 h-12 bg-gradient-to-br from-red-500 to-red-600 rounded-lg flex items-center justify-center mb-4">
-                            <span className="text-white font-bold text-lg">🚑</span>
-                          </div>
+                          <img
+                            src="/logo.png"
+                            alt="MEDROUTER Logo"
+                            className="w-32 h-32 mx-auto mb-4 object-contain drop-shadow-lg"
+                          />
                           <h2 className="text-2xl font-bold text-gray-900">MEDROUTER</h2>
                           <p className="text-gray-600 mt-2">Routes That Saves Lives</p>
                         </div>
