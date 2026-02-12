@@ -72,13 +72,26 @@ export default async function handler(req, res) {
     }
 
     try {
-        const { message, role, contextIds, sessionId } = req.body;
+        // Parse body if needed (Vercel sends it as Buffer/string)
+        let body = req.body;
+        if (typeof body === 'string') {
+            try {
+                body = JSON.parse(body);
+            } catch (e) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Invalid JSON in request body'
+                });
+            }
+        }
+
+        const { message, role, contextIds, sessionId } = body;
 
         // Validate inputs
         if (!message || typeof message !== 'string' || message.trim().length === 0) {
             return res.status(400).json({
                 success: false,
-                error: 'Message is required'
+                error: 'Message is required and must be a non-empty string'
             });
         }
 
