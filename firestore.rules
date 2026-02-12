@@ -42,13 +42,17 @@ service cloud.firestore {
 
     // ============================================
     // Hospitals Collection
-    // - hospital_admin: create/update
+    // - hospital_admin: create own, update own (adminId == uid)
     // - dispatcher: read only
     // - admin: full access
     // ============================================
     match /hospitals/{hospitalId} {
       allow read: if isAuthenticated();
-      allow create, update: if isAuthenticated();
+      allow create: if isAuthenticated() && (isHospitalAdmin() || isAdmin());
+      allow update: if isAuthenticated() && (
+        isAdmin() ||
+        (isHospitalAdmin() && resource.data.adminId == request.auth.uid)
+      );
       allow delete: if isAdmin();
     }
 

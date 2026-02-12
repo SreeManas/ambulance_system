@@ -1,10 +1,10 @@
 /**
  * geminiService.js — Frontend API client for the Gemini AI Copilot
  * 
- * Calls the backend proxy at localhost:5002 to keep API key secure.
+ * Calls Vercel serverless endpoints at /api/gemini to keep API key secure.
  */
 
-const GEMINI_API_BASE = 'http://localhost:5002/api/gemini';
+const GEMINI_API_BASE = '/api/gemini';
 
 /**
  * Send a chat message to the Gemini copilot.

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     getFirestore,
     collection,
@@ -7,14 +7,21 @@ import {
     updateDoc,
     deleteDoc,
     doc,
+    getDoc,
+    query,
+    where,
     serverTimestamp
 } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
-import { ChevronDown, ChevronUp, Plus, Edit2, Trash2, Save, X, AlertTriangle, FileText } from 'lucide-react';
+import mapboxgl from 'mapbox-gl';
+import { ChevronDown, ChevronUp, Plus, Edit2, Trash2, Save, X, AlertTriangle, FileText, MapPin, Loader2, Navigation, Building2 } from 'lucide-react';
 import HospitalExtendedProfileForm, { defaultExtendedProfile } from './HospitalExtendedProfileForm';
 import HospitalProfileView from './HospitalProfileView';
+import { useAuth } from './auth/AuthProvider';
 import { useTPreload, useTBatch, useT } from "../hooks/useT";
 import { PRELOAD_HOSPITAL } from "../constants/translationKeys";
+
+mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN || '';
 
 // Sprint-2: Default schema to prevent crashes from undefined fields
 const defaultHospitalSchema = {
@@ -223,8 +230,151 @@ export default function HospitalDashboard() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
+    // Phase: Ownership & Onboarding
+    const { currentUser, role } = useAuth();
+    const [userHospitalId, setUserHospitalId] = useState(null);
+    const [isOnboarding, setIsOnboarding] = useState(false);
+    const [onboardingLoading, setOnboardingLoading] = useState(true);
+    const [gpsLoading, setGpsLoading] = useState(false);
+
+    // Map preview refs
+    const mapPreviewRef = useRef(null);
+    const mapPreviewContainerRef = useRef(null);
+    const markerRef = useRef(null);
+
     const db = getFirestore();
     const auth = getAuth();
+
+    // Phase: Fetch user doc to check ownership
+    useEffect(() => {
+        if (!currentUser) {
+            setOnboardingLoading(false);
+            return;
+        }
+
+        const fetchUserDoc = async () => {
+            try {
+                const userDocRef = doc(db, 'users', currentUser.uid);
+                const userSnap = await getDoc(userDocRef);
+                if (userSnap.exists()) {
+                    const data = userSnap.data();
+                    if (data.hospitalId) {
+                        setUserHospitalId(data.hospitalId);
+                        setIsOnboarding(false);
+                    } else if (role === 'hospital_admin') {
+                        setIsOnboarding(true);
+                        setShowAddForm(true);
+                    }
+                } else if (role === 'hospital_admin') {
+                    setIsOnboarding(true);
+                    setShowAddForm(true);
+                }
+            } catch (err) {
+                console.error('Error fetching user doc:', err);
+            } finally {
+                setOnboardingLoading(false);
+            }
+        };
+
+        fetchUserDoc();
+    }, [currentUser, role, db]);
+
+    // Phase: GPS Location Capture
+    const handleUseCurrentLocation = useCallback(() => {
+        if (!navigator.geolocation) {
+            setError('Geolocation is not supported by your browser');
+            return;
+        }
+
+        setGpsLoading(true);
+        setError('');
+
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                const lat = position.coords.latitude;
+                const lng = position.coords.longitude;
+
+                setFormData(prev => ({
+                    ...prev,
+                    basicInfo: {
+                        ...prev.basicInfo,
+                        location: { latitude: lat, longitude: lng }
+                    }
+                }));
+
+                setGpsLoading(false);
+            },
+            (err) => {
+                console.error('Geolocation error:', err);
+                setError('Unable to fetch your location. Please enter coordinates manually or enable location access.');
+                setGpsLoading(false);
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+    }, []);
+
+    // Phase: Mapbox Preview in Form
+    useEffect(() => {
+        if (!showAddForm || !mapPreviewContainerRef.current) return;
+        if (!mapboxgl.accessToken || mapboxgl.accessToken.trim() === '') return;
+
+        const lat = formData.basicInfo.location.latitude;
+        const lng = formData.basicInfo.location.longitude;
+        const hasValidLocation = lat !== 0 || lng !== 0;
+
+        // Default center: India center
+        const center = hasValidLocation ? [lng, lat] : [78.9629, 20.5937];
+        const zoom = hasValidLocation ? 14 : 4;
+
+        if (!mapPreviewRef.current) {
+            // Initialize map
+            const map = new mapboxgl.Map({
+                container: mapPreviewContainerRef.current,
+                style: 'mapbox://styles/mapbox/streets-v12',
+                center,
+                zoom
+            });
+            map.addControl(new mapboxgl.NavigationControl(), 'top-right');
+            mapPreviewRef.current = map;
+
+            if (hasValidLocation) {
+                markerRef.current = new mapboxgl.Marker({ color: '#ef4444' })
+                    .setLngLat([lng, lat])
+                    .addTo(map);
+            }
+        } else {
+            // Update existing map
+            const map = mapPreviewRef.current;
+            map.flyTo({ center, zoom, duration: 1000 });
+
+            if (hasValidLocation) {
+                if (markerRef.current) {
+                    markerRef.current.setLngLat([lng, lat]);
+                } else {
+                    markerRef.current = new mapboxgl.Marker({ color: '#ef4444' })
+                        .setLngLat([lng, lat])
+                        .addTo(map);
+                }
+            } else if (markerRef.current) {
+                markerRef.current.remove();
+                markerRef.current = null;
+            }
+        }
+
+        return () => {
+            // Cleanup only on unmount
+        };
+    }, [showAddForm, formData.basicInfo.location.latitude, formData.basicInfo.location.longitude]);
+
+    // Cleanup map on component unmount
+    useEffect(() => {
+        return () => {
+            if (mapPreviewRef.current) {
+                mapPreviewRef.current.remove();
+                mapPreviewRef.current = null;
+            }
+        };
+    }, []);
 
     // Real-time Firebase sync with Sprint-2 schema guards
     useEffect(() => {
@@ -450,6 +600,13 @@ export default function HospitalDashboard() {
             const user = auth.currentUser;
             if (!user) throw new Error('Must be logged in');
 
+            // Block duplicate hospital creation for hospital_admin
+            if (!editingId && role === 'hospital_admin' && userHospitalId) {
+                setError('You already have a registered hospital. You cannot create another.');
+                setLoading(false);
+                return;
+            }
+
             // Phase 7B: Apply auto-normalization before saving
             const normalizedData = normalizeCapacity(formData);
 
@@ -463,12 +620,33 @@ export default function HospitalDashboard() {
             if (editingId) {
                 await updateDoc(doc(db, 'hospitals', editingId), hospitalData);
             } else {
-                await addDoc(collection(db, 'hospitals'), hospitalData);
+                // Add ownership fields on creation
+                hospitalData.adminId = user.uid;
+                hospitalData.createdBy = user.uid;
+                hospitalData.createdAt = serverTimestamp();
+
+                const docRef = await addDoc(collection(db, 'hospitals'), hospitalData);
+
+                // Update user document with hospitalId back-link
+                if (role === 'hospital_admin') {
+                    await updateDoc(doc(db, 'users', user.uid), {
+                        hospitalId: docRef.id
+                    });
+                    setUserHospitalId(docRef.id);
+                    setIsOnboarding(false);
+                }
             }
 
             setFormData(getEmptyFormData());
             setShowAddForm(false);
             setEditingId(null);
+
+            // Cleanup map preview on form close
+            if (mapPreviewRef.current) {
+                mapPreviewRef.current.remove();
+                mapPreviewRef.current = null;
+                markerRef.current = null;
+            }
         } catch (err) {
             setError(err.message);
         } finally {
@@ -514,27 +692,77 @@ export default function HospitalDashboard() {
         }
     };
 
+    // Onboarding loading state
+    if (onboardingLoading) {
+        return (
+            <div className="flex items-center justify-center min-h-[60vh]">
+                <div className="text-center">
+                    <Loader2 className="w-12 h-12 animate-spin text-blue-500 mx-auto mb-4" />
+                    <p className="text-gray-600 text-lg">Loading your hospital profile...</p>
+                </div>
+            </div>
+        );
+    }
+
+    // Compute filtered hospitals for display
+    const displayHospitals = (role === 'hospital_admin' && userHospitalId)
+        ? hospitals.filter(h => h.id === userHospitalId)
+        : hospitals;
+
     return (
         <div className="container mx-auto p-6 max-w-7xl">
-            <div className="mb-8 flex items-center justify-between">
-                <div>
-                    <h1 className="text-3xl font-bold text-gray-900">{H.title}</h1>
-                    <p className="text-sm text-gray-600 mt-2">
-                        {H.subtitle}
-                    </p>
+            {/* Onboarding Hero Header */}
+            {isOnboarding && (
+                <div className="mb-8 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-700 rounded-2xl p-8 text-white shadow-xl">
+                    <div className="flex items-center gap-4 mb-4">
+                        <div className="p-3 bg-white/20 backdrop-blur rounded-xl">
+                            <Building2 className="w-10 h-10" />
+                        </div>
+                        <div>
+                            <h1 className="text-3xl font-bold">Register Your Hospital</h1>
+                            <p className="text-blue-100 mt-1">
+                                Complete the form below to add your hospital to the EMS routing network
+                            </p>
+                        </div>
+                    </div>
+                    <div className="flex gap-6 mt-6">
+                        <div className="flex items-center gap-2 text-blue-100 text-sm">
+                            <MapPin className="w-4 h-4" /> GPS Location Capture
+                        </div>
+                        <div className="flex items-center gap-2 text-blue-100 text-sm">
+                            <Navigation className="w-4 h-4" /> Live Map Preview
+                        </div>
+                        <div className="flex items-center gap-2 text-blue-100 text-sm">
+                            <Save className="w-4 h-4" /> Instant Activation
+                        </div>
+                    </div>
                 </div>
-                <button
-                    onClick={() => {
-                        setShowAddForm(!showAddForm);
-                        setFormData(getEmptyFormData());
-                        setEditingId(null);
-                    }}
-                    className="btn btn-primary flex items-center gap-2"
-                >
-                    <Plus className="w-4 h-4" />
-                    {H.addHospital}
-                </button>
-            </div>
+            )}
+
+            {/* Standard Header — hidden during onboarding */}
+            {!isOnboarding && (
+                <div className="mb-8 flex items-center justify-between">
+                    <div>
+                        <h1 className="text-3xl font-bold text-gray-900">{H.title}</h1>
+                        <p className="text-sm text-gray-600 mt-2">
+                            {H.subtitle}
+                        </p>
+                    </div>
+                    {role === 'admin' && (
+                        <button
+                            onClick={() => {
+                                setShowAddForm(!showAddForm);
+                                setFormData(getEmptyFormData());
+                                setEditingId(null);
+                            }}
+                            className="btn btn-primary flex items-center gap-2"
+                        >
+                            <Plus className="w-4 h-4" />
+                            {H.addHospital}
+                        </button>
+                    )}
+                </div>
+            )}
 
             {error && (
                 <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800">
@@ -633,25 +861,63 @@ export default function HospitalDashboard() {
                                         required
                                     />
                                 </div>
+                                {/* GPS Capture Button */}
+                                <div className="md:col-span-2">
+                                    <button
+                                        type="button"
+                                        onClick={handleUseCurrentLocation}
+                                        disabled={gpsLoading}
+                                        className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg hover:from-blue-600 hover:to-indigo-700 transition-all shadow-md disabled:opacity-60 disabled:cursor-not-allowed"
+                                    >
+                                        {gpsLoading ? (
+                                            <>
+                                                <Loader2 className="w-5 h-5 animate-spin" />
+                                                Fetching your location...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <MapPin className="w-5 h-5" />
+                                                📍 Use My Current Location
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">{H.latitude}</label>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">{H.latitude} <span className="text-red-500">*</span></label>
                                     <input
                                         type="number"
                                         step="0.0001"
                                         className="input"
                                         value={formData.basicInfo.location.latitude}
-                                        onChange={(e) => updateNestedField('basicInfo.location.latitude', parseFloat(e.target.value))}
+                                        onChange={(e) => updateNestedField('basicInfo.location.latitude', parseFloat(e.target.value) || 0)}
+                                        required
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">{H.longitude}</label>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">{H.longitude} <span className="text-red-500">*</span></label>
                                     <input
                                         type="number"
                                         step="0.0001"
                                         className="input"
                                         value={formData.basicInfo.location.longitude}
-                                        onChange={(e) => updateNestedField('basicInfo.location.longitude', parseFloat(e.target.value))}
+                                        onChange={(e) => updateNestedField('basicInfo.location.longitude', parseFloat(e.target.value) || 0)}
+                                        required
                                     />
+                                </div>
+                                {/* Mapbox Preview */}
+                                <div className="md:col-span-2">
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">📍 Location Preview</label>
+                                    <div
+                                        ref={mapPreviewContainerRef}
+                                        className="w-full rounded-lg border border-gray-300 overflow-hidden"
+                                        style={{ height: '250px' }}
+                                    />
+                                    {(formData.basicInfo.location.latitude !== 0 || formData.basicInfo.location.longitude !== 0) && (
+                                        <p className="text-xs text-green-600 mt-2 flex items-center gap-1">
+                                            <MapPin className="w-3 h-3" />
+                                            Location set: {formData.basicInfo.location.latitude.toFixed(4)}°N, {formData.basicInfo.location.longitude.toFixed(4)}°E
+                                        </p>
+                                    )}
                                 </div>
                             </div>
                         </Section>
@@ -1038,7 +1304,7 @@ export default function HospitalDashboard() {
 
             {/* Hospital List */}
             <div className="space-y-4">
-                {hospitals.map((hospital) => (
+                {displayHospitals.map((hospital) => (
                     <div key={hospital.id} className="card shadow-md border border-gray-200">
                         <div className="p-6">
                             <div className="flex items-start justify-between mb-4">

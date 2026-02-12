@@ -778,7 +778,7 @@ export default function RoutingDashboard() {
                     )}
 
                     {/* Legend */}
-                    <div className="absolute bottom-6 left-6 bg-gray-800/95 backdrop-blur rounded-xl border border-gray-700 p-4 shadow-xl">
+                    <div className="absolute bottom-6 right-6 bg-gray-800/95 backdrop-blur rounded-xl border border-gray-700 p-4 shadow-xl max-w-xs">
                         <h4 className="text-white font-medium mb-3 text-sm">{T.hospitalRanking}</h4>
                         <div className="space-y-2">
                             <div className="flex items-center gap-2">

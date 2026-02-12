@@ -25,3 +25,4 @@ server/serviceAccountKey.json
 *.backup
 *.tmp
 *~
+.vercel

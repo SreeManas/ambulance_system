@@ -12,8 +12,7 @@
     "lint:fix": "eslint src --ext .js,.jsx --fix",
     "format": "prettier --write src/**/*.{js,jsx,css,md}",
     "seed:firestore": "node scripts/seedFirestore.js",
-    "sms-server": "node server/smsServer.js",
-    "gemini-server": "node server/geminiChat.js"
+    "sms-server": "node server/smsServer.js"
   },
   "dependencies": {
     "axios": "^1.7.7",

@@ -41,6 +41,7 @@ const db = getFirestore(app);
 // =============================================================================
 
 const BANGALORE_CENTER = [77.5946, 12.9716];
+const HYDERABAD_CENTER = [78.4867, 17.3850];
 
 function randomLocation(center, radiusKm = 15) {
     const r = radiusKm / 111.32;
@@ -54,6 +55,10 @@ function randomLocation(center, radiusKm = 15) {
         latitude: center[1] + y,
         longitude: center[0] + x
     };
+}
+
+function randomHyderabadLocation(radiusKm = 20) {
+    return randomLocation(HYDERABAD_CENTER, radiusKm);
 }
 
 // =============================================================================
@@ -671,6 +676,716 @@ const HOSPITALS = [
     }
 ];
 
+// =============================================================================
+// HYDERABAD HOSPITALS (Multi-City Expansion)
+// =============================================================================
+
+const HYDERABAD_HOSPITALS = [
+    // Gachibowli / Hi-Tech City Zone (5 hospitals)
+    {
+        basicInfo: {
+            name: "Apollo Hospitals Jubilee Hills",
+            address: "Road No. 72, Film Nagar, Jubilee Hills, Hyderabad",
+            phoneNumber: "+91-40-2360-7777",
+            email: "jubileehills@apollohospitals.com",
+            hospitalType: "multi_specialty",
+            city: "Hyderabad",
+            location: { latitude: 17.4326, longitude: 78.4071 }
+        },
+        traumaLevel: "level_1",
+        capabilities: {
+            hasTraumaCenter: true,
+            hasICU: true,
+            hasBurnUnit: true,
+            hasNICU: true,
+            hasCathLab: true,
+            hasStrokeCenter: true,
+            hasEmergencyRoom: true,
+            hasHelicopterPad: true,
+            specializations: ["cardiology", "neurology", "orthopedics", "trauma", "oncology"]
+        }
+    },
+    {
+        basicInfo: {
+            name: "Continental Hospitals Gachibowli",
+            address: "IT Park Road, Nanakramguda, Gachibowli, Hyderabad",
+            phoneNumber: "+91-40-6716-6666",
+            email: "gachibowli@continentalhospitals.com",
+            hospitalType: "multi_specialty",
+            city: "Hyderabad",
+            location: { latitude: 17.4239, longitude: 78.3492 }
+        },
+        traumaLevel: "level_1",
+        capabilities: {
+            hasTraumaCenter: true,
+            hasICU: true,
+            hasBurnUnit: true,
+            hasNICU: true,
+            hasCathLab: true,
+            hasStrokeCenter: true,
+            hasEmergencyRoom: true,
+            hasHelicopterPad: true,
+            specializations: ["cardiology", "neurology", "trauma", "orthopedics"]
+        }
+    },
+    {
+        basicInfo: {
+            name: "AIG Hospitals Gachibowli",
+            address: "Survey No 136, Plot No 2/3/4/5, Mindspace Road, Gachibowli, Hyderabad",
+            phoneNumber: "+91-40-4244-4222",
+            email: "info@aighospitals.com",
+            hospitalType: "multi_specialty",
+            city: "Hyderabad",
+            location: { latitude: 17.4418, longitude: 78.3740 }
+        },
+        traumaLevel: "level_1",
+        capabilities: {
+            hasTraumaCenter: true,
+            hasICU: true,
+            hasBurnUnit: false,
+            hasNICU: true,
+            hasCathLab: true,
+            hasStrokeCenter: true,
+            hasEmergencyRoom: true,
+            hasHelicopterPad: false,
+            specializations: ["cardiology", "neurology", "gastroenterology"]
+        }
+    },
+    {
+        basicInfo: {
+            name: "Sunshine Hospitals Gachibowli",
+            address: "PG Road, Beside Paradise Hotel, Gachibowli, Hyderabad",
+            phoneNumber: "+91-40-4424-2424",
+            email: "gachibowli@sunshinehospitals.com",
+            hospitalType: "multi_specialty",
+            city: "Hyderabad",
+            location: { latitude: 17.4403, longitude: 78.3489 }
+        },
+        traumaLevel: "level_2",
+        capabilities: {
+            hasTraumaCenter: true,
+            hasICU: true,
+            hasBurnUnit: false,
+            hasNICU: true,
+            hasCathLab: true,
+            hasStrokeCenter: false,
+            hasEmergencyRoom: true,
+            hasHelicopterPad: false,
+            specializations: ["orthopedics", "gastroenterology", "pulmonology"]
+        }
+    },
+    {
+        basicInfo: {
+            name: "Care Hospitals Hitech City",
+            address: "Old Mumbai Highway, Near Cyber Towers, Hitech City, Hyderabad",
+            phoneNumber: "+91-40-6165-6565",
+            email: "hitechcity@carehospitals.com",
+            hospitalType: "multi_specialty",
+            city: "Hyderabad",
+            location: { latitude: 17.4485, longitude: 78.3908 }
+        },
+        traumaLevel: "level_1",
+        capabilities: {
+            hasTraumaCenter: true,
+            hasICU: true,
+            hasBurnUnit: true,
+            hasNICU: true,
+            hasCathLab: true,
+            hasStrokeCenter: true,
+            hasEmergencyRoom: true,
+            hasHelicopterPad: false,
+            specializations: ["cardiology", "neurology", "trauma", "nephrology"]
+        }
+    },
+
+    // Banjara Hills / Jubilee Hills Zone (5 hospitals)
+    {
+        basicInfo: {
+            name: "Care Hospitals Banjara Hills",
+            address: "Road No. 1, Banjara Hills, Hyderabad",
+            phoneNumber: "+91-40-6810-6589",
+            email: "banjarahills@carehospitals.com",
+            hospitalType: "multi_specialty",
+            city: "Hyderabad",
+            location: { latitude: 17.4239, longitude: 78.4482 }
+        },
+        traumaLevel: "level_1",
+        capabilities: {
+            hasTraumaCenter: true,
+            hasICU: true,
+            hasBurnUnit: true,
+            hasNICU: true,
+            hasCathLab: true,
+            hasStrokeCenter: true,
+            hasEmergencyRoom: true,
+            hasHelicopterPad: false,
+            specializations: ["cardiology", "trauma", "neurology", "orthopedics"]
+        }
+    },
+    {
+        basicInfo: {
+            name: "Rainbow Children's Hospital Banjara Hills",
+            address: "Road No. 10, Banjara Hills, Hyderabad",
+            phoneNumber: "+91-40-4989-4989",
+            email: "banjarahills@rainbowhospitals.in",
+            hospitalType: "pediatric",
+            city: "Hyderabad",
+            location: { latitude: 17.4180, longitude: 78.4479 }
+        },
+        traumaLevel: "level_2",
+        capabilities: {
+            hasTraumaCenter: false,
+            hasICU: true,
+            hasBurnUnit: false,
+            hasNICU: true,
+            hasCathLab: false,
+            hasStrokeCenter: false,
+            hasEmergencyRoom: true,
+            hasHelicopterPad: false,
+            specializations: ["pediatrics", "neonatology"]
+        }
+    },
+    {
+        basicInfo: {
+            name: "Fernandez Hospital Bogulkunta",
+            address: "4-1-1230, Bogulkunta, Hyderabad",
+            phoneNumber: "+91-40-4780-9999",
+            email: "bogulkunta@fernandezhospital.com",
+            hospitalType: "specialty",
+            city: "Hyderabad",
+            location: { latitude: 17.3984, longitude: 78.4829 }
+        },
+        traumaLevel: "level_3",
+        capabilities: {
+            hasTraumaCenter: false,
+            hasICU: true,
+            hasBurnUnit: false,
+            hasNICU: true,
+            hasCathLab: false,
+            hasStrokeCenter: false,
+            hasEmergencyRoom: true,
+            hasHelicopterPad: false,
+            specializations: ["gynecology", "obstetrics", "neonatology"]
+        }
+    },
+    {
+        basicInfo: {
+            name: "Asian Institute of Gastroenterology",
+            address: "6-3-661, Somajiguda, Hyderabad",
+            phoneNumber: "+91-40-2337-8888",
+            email: "info@aigihyd.com",
+            hospitalType: "specialty",
+            city: "Hyderabad",
+            location: { latitude: 17.4284, longitude: 78.4573 }
+        },
+        traumaLevel: "level_3",
+        capabilities: {
+            hasTraumaCenter: false,
+            hasICU: true,
+            hasBurnUnit: false,
+            hasNICU: false,
+            hasCathLab: false,
+            hasStrokeCenter: false,
+            hasEmergencyRoom: true,
+            hasHelicopterPad: false,
+            specializations: ["gastroenterology", "hepatology"]
+        }
+    },
+    {
+        basicInfo: {
+            name: "KIMS Hospital Somajiguda",
+            address: "1-8-31/1, Minister Road, Secunderabad",
+            phoneNumber: "+91-40-4455-5566",
+            email: "somajiguda@kimshospitals.com",
+            hospitalType: "multi_specialty",
+            city: "Hyderabad",
+            location: { latitude: 17.4310, longitude: 78.4630 }
+        },
+        traumaLevel: "level_1",
+        capabilities: {
+            hasTraumaCenter: true,
+            hasICU: true,
+            hasBurnUnit: true,
+            hasNICU: true,
+            hasCathLab: true,
+            hasStrokeCenter: true,
+            hasEmergencyRoom: true,
+            hasHelicopterPad: false,
+            specializations: ["cardiology", "neurology", "trauma", "orthopedics"]
+        }
+    },
+
+    // Secunderabad Zone (4 hospitals)
+    {
+        basicInfo: {
+            name: "Yashoda Hospitals Secunderabad",
+            address: "SP Road, Near Mettuguda, Secunderabad",
+            phoneNumber: "+91-40-4475-5055",
+            email: "secunderabad@yashodahospitals.com",
+            hospitalType: "multi_specialty",
+            city: "Hyderabad",
+            location: { latitude: 17.4416, longitude: 78.5013 }
+        },
+        traumaLevel: "level_1",
+        capabilities: {
+            hasTraumaCenter: true,
+            hasICU: true,
+            hasBurnUnit: true,
+            hasNICU: true,
+            hasCathLab: true,
+            hasStrokeCenter: true,
+            hasEmergencyRoom: true,
+            hasHelicopterPad: false,
+            specializations: ["cardiology", "neurology", "trauma", "nephrology"]
+        }
+    },
+    {
+        basicInfo: {
+            name: "KIMS Hospital Secunderabad",
+            address: "1-112, Survey No. 55/E, Kondapur, Secunderabad",
+            phoneNumber: "+91-40-4455-1234",
+            email: "secunderabad@kimshospitals.com",
+            hospitalType: "multi_specialty",
+            city: "Hyderabad",
+            location: { latitude: 17.4434, longitude: 78.5023 }
+        },
+        traumaLevel: "level_1",
+        capabilities: {
+            hasTraumaCenter: true,
+            hasICU: true,
+            hasBurnUnit: false,
+            hasNICU: true,
+            hasCathLab: true,
+            hasStrokeCenter: true,
+            hasEmergencyRoom: true,
+            hasHelicopterPad: false,
+            specializations: ["cardiology", "neurology", "orthopedics"]
+        }
+    },
+    {
+        basicInfo: {
+            name: "Gandhi Hospital",
+            address: "Musheerabad, Secunderabad",
+            phoneNumber: "+91-40-2760-7777",
+            email: "info@gandhihospital.gov.in",
+            hospitalType: "government",
+            city: "Hyderabad",
+            location: { latitude: 17.4462, longitude: 78.4969 }
+        },
+        traumaLevel: "level_2",
+        capabilities: {
+            hasTraumaCenter: true,
+            hasICU: true,
+            hasBurnUnit: true,
+            hasNICU: false,
+            hasCathLab: false,
+            hasStrokeCenter: false,
+            hasEmergencyRoom: true,
+            hasHelicopterPad: false,
+            specializations: ["trauma", "infectious_disease", "orthopedics"]
+        }
+    },
+    {
+        basicInfo: {
+            name: "Omni Hospital Kukatpally",
+            address: "Road No. 2, Kukatpally, Hyderabad",
+            phoneNumber: "+91-40-4488-8888",
+            email: "kukatpally@omnihospital.com",
+            hospitalType: "multi_specialty",
+            city: "Hyderabad",
+            location: { latitude: 17.4849, longitude: 78.4138 }
+        },
+        traumaLevel: "level_2",
+        capabilities: {
+            hasTraumaCenter: true,
+            hasICU: true,
+            hasBurnUnit: false,
+            hasNICU: true,
+            hasCathLab: true,
+            hasStrokeCenter: false,
+            hasEmergencyRoom: true,
+            hasHelicopterPad: false,
+            specializations: ["cardiology", "orthopedics", "gastroenterology"]
+        }
+    },
+
+    // Ameerpet / Kukatpally Zone (4 hospitals)
+    {
+        basicInfo: {
+            name: "Yashoda Hospitals Malakpet",
+            address: "Nalgonda X Roads, Malakpet, Hyderabad",
+            phoneNumber: "+91-40-6677-2222",
+            email: "malakpet@yashodahospitals.com",
+            hospitalType: "multi_specialty",
+            city: "Hyderabad",
+            location: { latitude: 17.3953, longitude: 78.5260 }
+        },
+        traumaLevel: "level_1",
+        capabilities: {
+            hasTraumaCenter: true,
+            hasICU: true,
+            hasBurnUnit: true,
+            hasNICU: true,
+            hasCathLab: true,
+            hasStrokeCenter: true,
+            hasEmergencyRoom: true,
+            hasHelicopterPad: false,
+            specializations: ["cardiology", "trauma", "neurology", "nephrology"]
+        }
+    },
+    {
+        basicInfo: {
+            name: "MaxCure Hospitals Madhapur",
+            address: "Dwarakapuri Colony, Punjagutta, Hyderabad",
+            phoneNumber: "+91-40-6677-7777",
+            email: "madhapur@maxcurehospitals.com",
+            hospitalType: "multi_specialty",
+            city: "Hyderabad",
+            location: { latitude: 17.4434, longitude: 78.3915 }
+        },
+        traumaLevel: "level_2",
+        capabilities: {
+            hasTraumaCenter: true,
+            hasICU: true,
+            hasBurnUnit: false,
+            hasNICU: true,
+            hasCathLab: true,
+            hasStrokeCenter: false,
+            hasEmergencyRoom: true,
+            hasHelicopterPad: false,
+            specializations: ["cardiology", "orthopedics", "pulmonology"]
+        }
+    },
+    {
+        basicInfo: {
+            name: "Citizens Hospital Nallagandla",
+            address: "Near Lingampally, Nallagandla, Hyderabad",
+            phoneNumber: "+91-40-6662-6666",
+            email: "nallagandla@citizenshospital.com",
+            hospitalType: "multi_specialty",
+            city: "Hyderabad",
+            location: { latitude: 17.4561, longitude: 78.3480 }
+        },
+        traumaLevel: "level_2",
+        capabilities: {
+            hasTraumaCenter: true,
+            hasICU: true,
+            hasBurnUnit: false,
+            hasNICU: false,
+            hasCathLab: true,
+            hasStrokeCenter: false,
+            hasEmergencyRoom: true,
+            hasHelicopterPad: false,
+            specializations: ["orthopedics", "gastroenterology", "general_surgery"]
+        }
+    },
+    {
+        basicInfo: {
+            name: "Apollo Cradle Kondapur",
+            address: "Sithaphalmandi, Kondapur, Hyderabad",
+            phoneNumber: "+91-40-4466-3366",
+            email: "kondapur@apollocradle.com",
+            hospitalType: "specialty",
+            city: "Hyderabad",
+            location: { latitude: 17.4754, longitude: 78.3638 }
+        },
+        traumaLevel: "level_3",
+        capabilities: {
+            hasTraumaCenter: false,
+            hasICU: true,
+            hasBurnUnit: false,
+            hasNICU: true,
+            hasCathLab: false,
+            hasStrokeCenter: false,
+            hasEmergencyRoom: true,
+            hasHelicopterPad: false,
+            specializations: ["gynecology", "obstetrics", "pediatrics", "neonatology"]
+        }
+    },
+
+    // LB Nagar / Uppal Zone (4 hospitals)
+    {
+        basicInfo: {
+            name: "Sunshine Hospitals LB Nagar",
+            address: "Beside Reliance Trends, LB Nagar, Hyderabad",
+            phoneNumber: "+91-40-6677-5555",
+            email: "lbnagar@sunshinehospitals.com",
+            hospitalType: "multi_specialty",
+            city: "Hyderabad",
+            location: { latitude: 17.3501, longitude: 78.5526 }
+        },
+        traumaLevel: "level_1",
+        capabilities: {
+            hasTraumaCenter: true,
+            hasICU: true,
+            hasBurnUnit: true,
+            hasNICU: true,
+            hasCathLab: true,
+            hasStrokeCenter: true,
+            hasEmergencyRoom: true,
+            hasHelicopterPad: false,
+            specializations: ["cardiology", "trauma", "neurology", "orthopedics"]
+        }
+    },
+    {
+        basicInfo: {
+            name: "Kamineni Hospitals LB Nagar",
+            address: "LB Nagar, Hyderabad",
+            phoneNumber: "+91-40-2420-3000",
+            email: "lbnagar@kamineihospitals.com",
+            hospitalType: "multi_specialty",
+            city: "Hyderabad",
+            location: { latitude: 17.3512, longitude: 78.5534 }
+        },
+        traumaLevel: "level_2",
+        capabilities: {
+            hasTraumaCenter: true,
+            hasICU: true,
+            hasBurnUnit: false,
+            hasNICU: true,
+            hasCathLab: true,
+            hasStrokeCenter: false,
+            hasEmergencyRoom: true,
+            hasHelicopterPad: false,
+            specializations: ["cardiology", "orthopedics", "general_surgery"]
+        }
+    },
+    {
+        basicInfo: {
+            name: "Star Hospitals Uppal",
+            address: "Near ECIL X Roads, Uppal, Hyderabad",
+            phoneNumber: "+91-40-4477-4477",
+            email: "uppal@starhospitals.com",
+            hospitalType: "multi_specialty",
+            city: "Hyderabad",
+            location: { latitude: 17.4054, longitude: 78.5584 }
+        },
+        traumaLevel: "level_2",
+        capabilities: {
+            hasTraumaCenter: true,
+            hasICU: true,
+            hasBurnUnit: false,
+            hasNICU: true,
+            hasCathLab: true,
+            hasStrokeCenter: false,
+            hasEmergencyRoom: true,
+            hasHelicopterPad: false,
+            specializations: ["cardiology", "nephrology", "orthopedics"]
+        }
+    },
+    {
+        basicInfo: {
+            name: "Global Hospitals Lakdikapul",
+            address: "Lakdi-Ka-Pool, Hyderabad",
+            phoneNumber: "+91-40-2330-7777",
+            email: "lakdikapul@globalhospitalsindia.com",
+            hospitalType: "specialty",
+            city: "Hyderabad",
+            location: { latitude: 17.4011, longitude: 78.4610 }
+        },
+        traumaLevel: "level_1",
+        capabilities: {
+            hasTraumaCenter: true,
+            hasICU: true,
+            hasBurnUnit: false,
+            hasNICU: false,
+            hasCathLab: true,
+            hasStrokeCenter: false,
+            hasEmergencyRoom: true,
+            hasHelicopterPad: false,
+            specializations: ["liver_transplant", "multi_organ_transplant", "gastroenterology"]
+        }
+    },
+
+    // Mehdipatnam / Koti / Abids Zone (3 hospitals)
+    {
+        basicInfo: {
+            name: "NIMS (Nizams Institute of Medical Sciences)",
+            address: "Punjagutta, Hyderabad",
+            phoneNumber: "+91-40-2348-9000",
+            email: "info@nims.edu.in",
+            hospitalType: "government",
+            city: "Hyderabad",
+            location: { latitude: 17.4239, longitude: 78.4490 }
+        },
+        traumaLevel: "level_1",
+        capabilities: {
+            hasTraumaCenter: true,
+            hasICU: true,
+            hasBurnUnit: true,
+            hasNICU: true,
+            hasCathLab: true,
+            hasStrokeCenter: true,
+            hasEmergencyRoom: true,
+            hasHelicopterPad: true,
+            specializations: ["cardiology", "neurology", "trauma", "nephrology", "oncology"]
+        }
+    },
+    {
+        basicInfo: {
+            name: "Osmania General Hospital",
+            address: "Afzal Gunj, Hyderabad",
+            phoneNumber: "+91-40-2460-7777",
+            email: "info@osmaniahospital.gov.in",
+            hospitalType: "government",
+            city: "Hyderabad",
+            location: { latitude: 17.3730, longitude: 78.4772 }
+        },
+        traumaLevel: "level_1",
+        capabilities: {
+            hasTraumaCenter: true,
+            hasICU: true,
+            hasBurnUnit: true,
+            hasNICU: false,
+            hasCathLab: true,
+            hasStrokeCenter: false,
+            hasEmergencyRoom: true,
+            hasHelicopterPad: false,
+            specializations: ["trauma", "general_surgery", "infectious_disease", "orthopedics"]
+        }
+    },
+    {
+        basicInfo: {
+            name: "Apollo Hospitals Hyderguda",
+            address: "1-10-11/1, Begumpet, Hyderguda, Hyderabad",
+            phoneNumber: "+91-40-2378-8888",
+            email: "hyderguda@apollohospitals.com",
+            hospitalType: "multi_specialty",
+            city: "Hyderabad",
+            location: { latitude: 17.4344, longitude: 78.4689 }
+        },
+        traumaLevel: "level_1",
+        capabilities: {
+            hasTraumaCenter: true,
+            hasICU: true,
+            hasBurnUnit: true,
+            hasNICU: true,
+            hasCathLab: true,
+            hasStrokeCenter: true,
+            hasEmergencyRoom: true,
+            hasHelicopterPad: false,
+            specializations: ["cardiology", "neurology", "orthopedics", "trauma", "oncology"]
+        }
+    },
+
+    // Begumpet / Tarnaka / Miyapur Zone (5 hospitals)
+    {
+        basicInfo: {
+            name: "KIMS Hospital Kondapur",
+            address: "Beside Botanical Garden, Kondapur, Hyderabad",
+            phoneNumber: "+91-40-4800-8000",
+            email: "kondapur@kimshospitals.com",
+            hospitalType: "multi_specialty",
+            city: "Hyderabad",
+            location: { latitude: 17.4742, longitude: 78.3684 }
+        },
+        traumaLevel: "level_1",
+        capabilities: {
+            hasTraumaCenter: true,
+            hasICU: true,
+            hasBurnUnit: true,
+            hasNICU: true,
+            hasCathLab: true,
+            hasStrokeCenter: true,
+            hasEmergencyRoom: true,
+            hasHelicopterPad: false,
+            specializations: ["cardiology", "neurology", "trauma", "nephrology"]
+        }
+    },
+    {
+        basicInfo: {
+            name: "Medicover Hospitals Madhapur",
+            address: "Behind Cyber Towers, Madhapur, Hyderabad",
+            phoneNumber: "+91-40-6810-5555",
+            email: "madhapur@medicoverhospitals.in",
+            hospitalType: "multi_specialty",
+            city: "Hyderabad",
+            location: { latitude: 17.4483, longitude: 78.3915 }
+        },
+        traumaLevel: "level_2",
+        capabilities: {
+            hasTraumaCenter: true,
+            hasICU: true,
+            hasBurnUnit: false,
+            hasNICU: true,
+            hasCathLab: true,
+            hasStrokeCenter: false,
+            hasEmergencyRoom: true,
+            hasHelicopterPad: false,
+            specializations: ["cardiology", "orthopedics", "gastroenterology"]
+        }
+    },
+    {
+        basicInfo: {
+            name: "Aware Gleneagles Global Hospital",
+            address: "Lakdikapul, Hyderabad",
+            phoneNumber: "+91-40-6633-3333",
+            email: "lakdikapul@awaregleneagles.com",
+            hospitalType: "multi_specialty",
+            city: "Hyderabad",
+            location: { latitude: 17.4011, longitude: 78.4593 }
+        },
+        traumaLevel: "level_1",
+        capabilities: {
+            hasTraumaCenter: true,
+            hasICU: true,
+            hasBurnUnit: false,
+            hasNICU: true,
+            hasCathLab: true,
+            hasStrokeCenter: true,
+            hasEmergencyRoom: true,
+            hasHelicopterPad: false,
+            specializations: ["cardiology", "neurology", "nephrology", "multi_organ_transplant"]
+        }
+    },
+    {
+        basicInfo: {
+            name: "Mythri Hospital Mehdipatnam",
+            address: "6-1-1040/1, Beside Mythri Nagar, Mehdipatnam, Hyderabad",
+            phoneNumber: "+91-40-2343-0303",
+            email: "mehdipatnam@mythrihospital.com",
+            hospitalType: "multi_specialty",
+            city: "Hyderabad",
+            location: { latitude: 17.3972, longitude: 78.4413 }
+        },
+        traumaLevel: "level_2",
+        capabilities: {
+            hasTraumaCenter: true,
+            hasICU: true,
+            hasBurnUnit: false,
+            hasNICU: false,
+            hasCathLab: false,
+            hasStrokeCenter: false,
+            hasEmergencyRoom: true,
+            hasHelicopterPad: false,
+            specializations: ["orthopedics", "general_surgery", "pulmonology"]
+        }
+    },
+    {
+        basicInfo: {
+            name: "Omega Hospitals Banjara Hills",
+            address: "Road No. 12, Banjara Hills, Hyderabad",
+            phoneNumber: "+91-40-3021-1111",
+            email: "banjarahills@omegahospitals.com",
+            hospitalType: "specialty",
+            city: "Hyderabad",
+            location: { latitude: 17.4193, longitude: 78.4501 }
+        },
+        traumaLevel: "level_2",
+        capabilities: {
+            hasTraumaCenter: false,
+            hasICU: true,
+            hasBurnUnit: false,
+            hasNICU: false,
+            hasCathLab: false,
+            hasStrokeCenter: false,
+            hasEmergencyRoom: true,
+            hasHelicopterPad: false,
+            specializations: ["oncology", "radiation_oncology", "surgical_oncology"]
+        }
+    }
+];
+
 const AMBULANCES = [
     {
         vehicleNumber: "KA-01-EMS-1001",
@@ -743,6 +1458,193 @@ const AMBULANCES = [
         status: "available",
         equipment: ["defibrillator", "oxygen", "first_aid"],
         crew: { paramedics: 1, driver: 1 }
+    }
+];
+
+// =============================================================================
+// HYDERABAD AMBULANCES (Multi-City Expansion)
+// =============================================================================
+
+const HYDERABAD_AMBULANCES = [
+    {
+        vehicleNumber: "HYD-AMB-001",
+        type: "ALS",
+        baseStation: "Apollo Hospitals Jubilee Hills",
+        currentLocation: randomHyderabadLocation(8),
+        status: "available",
+        equipment: ["ventilator", "defibrillator", "cardiac_monitor", "oxygen"],
+        crew: { paramedics: 2, driver: 1 }
+    },
+    {
+        vehicleNumber: "HYD-AMB-002",
+        type: "ALS",
+        baseStation: "Yashoda Hospitals Secunderabad",
+        currentLocation: randomHyderabadLocation(10),
+        status: "available",
+        equipment: ["ventilator", "defibrillator", "cardiac_monitor", "oxygen"],
+        crew: { paramedics: 2, driver: 1 }
+    },
+    {
+        vehicleNumber: "HYD-AMB-003",
+        type: "BLS",
+        baseStation: "NIMS Hyderabad",
+        currentLocation: randomHyderabadLocation(6),
+        status: "available",
+        equipment: ["defibrillator", "oxygen", "first_aid"],
+        crew: { paramedics: 1, driver: 1 }
+    },
+    {
+        vehicleNumber: "HYD-AMB-004",
+        type: "ALS",
+        baseStation: "Continental Hospitals Gachibowli",
+        currentLocation: randomHyderabadLocation(12),
+        status: "available",
+        equipment: ["ventilator", "defibrillator", "cardiac_monitor", "oxygen"],
+        crew: { paramedics: 2, driver: 1 }
+    },
+    {
+        vehicleNumber: "HYD-AMB-005",
+        type: "BLS",
+        baseStation: "Care Hospitals Banjara Hills",
+        currentLocation: randomHyderabadLocation(7),
+        status: "available",
+        equipment: ["defibrillator", "oxygen", "first_aid"],
+        crew: { paramedics: 1, driver: 1 }
+    },
+    {
+        vehicleNumber: "HYD-AMB-006",
+        type: "ALS",
+        baseStation: "AIG Hospitals Gachibowli",
+        currentLocation: randomHyderabadLocation(9),
+        status: "available",
+        equipment: ["ventilator", "defibrillator", "cardiac_monitor", "oxygen"],
+        crew: { paramedics: 2, driver: 1 }
+    },
+    {
+        vehicleNumber: "HYD-AMB-007",
+        type: "BLS",
+        baseStation: "Sunshine Hospitals Gachibowli",
+        currentLocation: randomHyderabadLocation(5),
+        status: "available",
+        equipment: ["defibrillator", "oxygen", "first_aid"],
+        crew: { paramedics: 1, driver: 1 }
+    },
+    {
+        vehicleNumber: "HYD-AMB-008",
+        type: "ALS",
+        baseStation: "KIMS Hospital Secunderabad",
+        currentLocation: randomHyderabadLocation(11),
+        status: "available",
+        equipment: ["ventilator", "defibrillator", "cardiac_monitor", "oxygen"],
+        crew: { paramedics: 2, driver: 1 }
+    },
+    {
+        vehicleNumber: "HYD-AMB-009",
+        type: "BLS",
+        baseStation: "Gandhi Hospital",
+        currentLocation: randomHyderabadLocation(8),
+        status: "available",
+        equipment: ["defibrillator", "oxygen", "first_aid"],
+        crew: { paramedics: 1, driver: 1 }
+    },
+    {
+        vehicleNumber: "HYD-AMB-010",
+        type: "ALS",
+        baseStation: "Osmania General Hospital",
+        currentLocation: randomHyderabadLocation(7),
+        status: "available",
+        equipment: ["ventilator", "defibrillator", "cardiac_monitor", "oxygen"],
+        crew: { paramedics: 2, driver: 1 }
+    },
+    {
+        vehicleNumber: "HYD-AMB-011",
+        type: "ALS",
+        baseStation: "Sunshine Hospitals LB Nagar",
+        currentLocation: randomHyderabadLocation(15),
+        status: "available",
+        equipment: ["ventilator", "defibrillator", "cardiac_monitor", "oxygen"],
+        crew: { paramedics: 2, driver: 1 }
+    },
+    {
+        vehicleNumber: "HYD-AMB-012",
+        type: "BLS",
+        baseStation: "Yashoda Hospitals Malakpet",
+        currentLocation: randomHyderabadLocation(14),
+        status: "available",
+        equipment: ["defibrillator", "oxygen", "first_aid"],
+        crew: { paramedics: 1, driver: 1 }
+    },
+    {
+        vehicleNumber: "HYD-AMB-013",
+        type: "ALS",
+        baseStation: "Care Hospitals Hitech City",
+        currentLocation: randomHyderabadLocation(6),
+        status: "available",
+        equipment: ["ventilator", "defibrillator", "cardiac_monitor", "oxygen"],
+        crew: { paramedics: 2, driver: 1 }
+    },
+    {
+        vehicleNumber: "HYD-AMB-014",
+        type: "BLS",
+        baseStation: "MaxCure Hospitals Madhapur",
+        currentLocation: randomHyderabadLocation(8),
+        status: "available",
+        equipment: ["defibrillator", "oxygen", "first_aid"],
+        crew: { paramedics: 1, driver: 1 }
+    },
+    {
+        vehicleNumber: "HYD-AMB-015",
+        type: "ALS",
+        baseStation: "KIMS Hospital Kondapur",
+        currentLocation: randomHyderabadLocation(10),
+        status: "available",
+        equipment: ["ventilator", "defibrillator", "cardiac_monitor", "oxygen"],
+        crew: { paramedics: 2, driver: 1 }
+    },
+    {
+        vehicleNumber: "HYD-AMB-016",
+        type: "BLS",
+        baseStation: "Global Hospitals Lakdikapul",
+        currentLocation: randomHyderabadLocation(9),
+        status: "available",
+        equipment: ["defibrillator", "oxygen", "first_aid"],
+        crew: { paramedics: 1, driver: 1 }
+    },
+    {
+        vehicleNumber: "HYD-AMB-017",
+        type: "ALS",
+        baseStation: "Apollo Hospitals Hyderguda",
+        currentLocation: randomHyderabadLocation(11),
+        status: "available",
+        equipment: ["ventilator", "defibrillator", "cardiac_monitor", "oxygen"],
+        crew: { paramedics: 2, driver: 1 }
+    },
+    {
+        vehicleNumber: "HYD-AMB-018",
+        type: "ALS",
+        baseStation: "Star Hospitals Uppal",
+        currentLocation: randomHyderabadLocation(13),
+        status: "available",
+        equipment: ["ventilator", "defibrillator", "cardiac_monitor", "oxygen"],
+        crew: { paramedics: 2, driver: 1 }
+    },
+    {
+        vehicleNumber: "HYD-AMB-019",
+        type: "BLS",
+        baseStation: "Kamineni Hospitals LB Nagar",
+        currentLocation: randomHyderabadLocation(16),
+        status: "available",
+        equipment: ["defibrillator", "oxygen", "first_aid"],
+        crew: { paramedics: 1, driver: 1 }
+    },
+    {
+        vehicleNumber: "HYD-AMB-020",
+        type: "ALS",
+        baseStation: "Aware Gleneagles Global Hospital",
+        currentLocation: randomHyderabadLocation(7),
+        status: "available",
+        equipment: ["ventilator", "defibrillator", "cardiac_monitor", "oxygen"],
+        crew: { paramedics: 2, driver: 1 }
     }
 ];
 
@@ -944,8 +1846,8 @@ async function seedUsers() {
     console.log(`✅ Seeded ${DEMO_USERS.length} demo users`);
 }
 
-async function seedHospitals() {
-    console.log('\n🏥 Seeding hospitals with realistic data...');
+async function seedBangaloreHospitals() {
+    console.log('\n🏥 Seeding Bangalore hospitals with realistic data...');
 
     for (const hospital of HOSPITALS) {
         // Generate realistic data using Sprint-2 generators
@@ -965,15 +1867,45 @@ async function seedHospitals() {
 
         const docRef = await addDoc(collection(db, 'hospitals'), realisticData);
         console.log(`  ✓ Added ${hospital.basicInfo.name} (${docRef.id})`);
+        console.log(`    City: ${hospital.basicInfo.city || 'Bangalore'}`);
         console.log(`    Beds: ${realisticData.bedAvailability.total} total, ${realisticData.bedAvailability.available} available`);
         console.log(`    ICU: ${realisticData.bedAvailability.icu.total}/${realisticData.bedAvailability.icu.available}`);
     }
 
-    console.log(`✅ Seeded ${HOSPITALS.length} hospitals with realistic capacity data`);
+    console.log(`✅ Seeded ${HOSPITALS.length} Bangalore hospitals with realistic capacity data`);
 }
 
-async function seedAmbulances() {
-    console.log('\n🚑 Seeding ambulances...');
+async function seedHyderabadHospitals() {
+    console.log('\n🏥 Seeding Hyderabad hospitals with realistic data...');
+
+    for (const hospital of HYDERABAD_HOSPITALS) {
+        // Generate realistic data using Sprint-2 generators
+        const realisticData = {
+            ...hospital,
+            // Override static data with dynamically generated realistic values
+            bedAvailability: generateBedAvailability(),
+            specialists: generateSpecialists(),
+            equipment: generateEquipment(),
+            caseAcceptance: generateCaseAcceptance(),
+            emergencyReadiness: generateEmergencyReadiness(),
+            extendedProfile: generateExtendedProfile(),
+            capacityLastUpdated: serverTimestamp(),
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+        };
+
+        const docRef = await addDoc(collection(db, 'hospitals'), realisticData);
+        console.log(`  ✓ Added ${hospital.basicInfo.name} (${docRef.id})`);
+        console.log(`    City: ${hospital.basicInfo.city}`);
+        console.log(`    Beds: ${realisticData.bedAvailability.total} total, ${realisticData.bedAvailability.available} available`);
+        console.log(`    ICU: ${realisticData.bedAvailability.icu.total}/${realisticData.bedAvailability.icu.available}`);
+    }
+
+    console.log(`✅ Seeded ${HYDERABAD_HOSPITALS.length} Hyderabad hospitals with realistic capacity data`);
+}
+
+async function seedBangaloreAmbulances() {
+    console.log('\n🚑 Seeding Bangalore ambulances...');
 
     for (const ambulance of AMBULANCES) {
         const docRef = await addDoc(collection(db, 'ambulances'), {
@@ -984,7 +1916,22 @@ async function seedAmbulances() {
         console.log(`  ✓ Added ${ambulance.vehicleNumber} (${ambulance.type}) - ${docRef.id}`);
     }
 
-    console.log(`✅ Seeded ${AMBULANCES.length} ambulances`);
+    console.log(`✅ Seeded ${AMBULANCES.length} Bangalore ambulances`);
+}
+
+async function seedHyderabadAmbulances() {
+    console.log('\n🚑 Seeding Hyderabad ambulances...');
+
+    for (const ambulance of HYDERABAD_AMBULANCES) {
+        const docRef = await addDoc(collection(db, 'ambulances'), {
+            ...ambulance,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+        });
+        console.log(`  ✓ Added ${ambulance.vehicleNumber} (${ambulance.type}) - ${docRef.id}`);
+    }
+
+    console.log(`✅ Seeded ${HYDERABAD_AMBULANCES.length} Hyderabad ambulances`);
 }
 
 async function seedEmergencyCases() {
@@ -1008,6 +1955,7 @@ async function seedEmergencyCases() {
 
 async function main() {
     console.log('🌱 Firestore Seeding Script for EMS Routing Platform');
+    console.log('🌍 Multi-City Support: Bangalore + Hyderabad');
     console.log('='.repeat(60));
 
     try {
@@ -1018,15 +1966,22 @@ async function main() {
 
         // Seed new data
         await seedUsers();  // Phase 2B: RBAC users
-        await seedHospitals();
-        await seedAmbulances();
+
+        // Seed Bangalore
+        await seedBangaloreHospitals();
+        await seedBangaloreAmbulances();
+
+        // Seed Hyderabad
+        await seedHyderabadHospitals();
+        await seedHyderabadAmbulances();
+
         await seedEmergencyCases();
 
         console.log('\n✅ Seeding completed successfully!');
         console.log('\nData Summary:');
         console.log(`  👤 ${DEMO_USERS.length} demo users`);
-        console.log(`  🏥 ${HOSPITALS.length} hospitals`);
-        console.log(`  🚑 ${AMBULANCES.length} ambulances`);
+        console.log(`  🏥 ${HOSPITALS.length + HYDERABAD_HOSPITALS.length} total hospitals (${HOSPITALS.length} Bangalore, ${HYDERABAD_HOSPITALS.length} Hyderabad)`);
+        console.log(`  🚑 ${AMBULANCES.length + HYDERABAD_AMBULANCES.length} total ambulances (${AMBULANCES.length} Bangalore, ${HYDERABAD_AMBULANCES.length} Hyderabad)`);
         console.log(`  🚨 ${EMERGENCY_CASES.length} emergency cases`);
 
         process.exit(0);
