@@ -217,7 +217,10 @@ export default function HospitalExplainabilityPanel({ hospital, compact = false 
         <div className="space-y-4">
             {/* Mobile Accordion Toggle */}
             <button
-                onClick={() => setIsExpanded(!isExpanded)}
+                onClick={(e) => {
+                    e.stopPropagation();
+                    setIsExpanded(!isExpanded);
+                }}
                 className="show-mobile-only w-full p-4 flex justify-between items-center bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl shadow-md touch-target"
             >
                 <div className="flex items-center gap-2">
