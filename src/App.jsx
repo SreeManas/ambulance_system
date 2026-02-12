@@ -13,6 +13,7 @@ import AmbulanceNavigation from "./components/navigation/AmbulanceNavigation.jsx
 import AmbulanceTrackingViewer from "./components/tracking/AmbulanceTrackingViewer.jsx";
 import AppErrorBoundary from "./components/AppErrorBoundary.jsx";
 import EMSChatAssistant from "./components/ai/EMSChatAssistant.jsx";
+import DriverOnboarding from "./pages/DriverOnboarding.jsx";
 
 // === SHARED COMPONENTS ===
 import RealTimeStatusIndicator from "./components/RealTimeStatusIndicator.jsx";
@@ -40,7 +41,7 @@ const Nav = () => {
   const tPatientIntake = useT("Patient Intake");
   const tHospitals = useT("Hospitals");
   const tFeedback = useT("Feedback");
-  const tEMSPlatform = useT("EMS Routing Platform");
+  const tEMSPlatform = useT("MEDROUTER");
   const tLogout = useT("Logout");
   const tLogin = useT("Login");
   const tWelcome = useT("Welcome");
@@ -56,6 +57,9 @@ const Nav = () => {
     { to: "/live-capacity", label: tLiveCapacity, icon: "📊" },
     { to: "/feedback", label: tFeedback, icon: "💬" },
   ];
+
+  // Hide nav items for ambulance_driver role
+  const visibleNavItems = role === 'ambulance_driver' ? [] : navigationItems;
 
   return (
     <header className="bg-white shadow-lg border-b border-gray-100 sticky top-0 z-50">
@@ -77,7 +81,7 @@ const Nav = () => {
 
         {/* Center - Navigation Items */}
         <nav className="hidden lg:flex items-center space-x-1">
-          {navigationItems.map((item) => (
+          {visibleNavItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -184,7 +188,7 @@ const Nav = () => {
       {isMobileMenuOpen && (
         <div className="md:hidden pb-6 px-4">
           <nav className="space-y-2">
-            {navigationItems.map((item) => (
+            {visibleNavItems.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
@@ -268,12 +272,17 @@ export default function App() {
             <main className="flex-1">
               <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
                 <Routes>
-                  {/* Default Route - Routing Dashboard */}
-                  <Route path="/" element={<AppErrorBoundary><RoutingDashboard /></AppErrorBoundary>} />
+                  {/* Default Route - Routing Dashboard (Protected) */}
+                  <Route path="/" element={
+                    <ProtectedRoute><AppErrorBoundary><RoutingDashboard /></AppErrorBoundary></ProtectedRoute>
+                  } />
 
                   {/* Healthcare Core Routes - Role Protected */}
                   <Route path="/routing" element={
                     <ProtectedRoute><AppErrorBoundary><RoutingDashboard /></AppErrorBoundary></ProtectedRoute>
+                  } />
+                  <Route path="/driver-onboarding" element={
+                    <ProtectedRoute><AppErrorBoundary><DriverOnboarding /></AppErrorBoundary></ProtectedRoute>
                   } />
                   <Route path="/command-center" element={
                     <ProtectedRoute><AppErrorBoundary><CommandCenterDashboard /></AppErrorBoundary></ProtectedRoute>
@@ -319,7 +328,7 @@ export default function App() {
                     <div className="max-w-2xl mx-auto animate-fadeIn">
                       <div className="mb-6">
                         <h2 className="text-2xl font-bold text-gray-900 mb-2">Share Your Feedback</h2>
-                        <p className="text-gray-600">Help us improve the EMS Routing Platform with your valuable feedback and suggestions.</p>
+                        <p className="text-gray-600">Help us improve MEDROUTER with your valuable feedback and suggestions.</p>
                       </div>
                       <FeedbackForm />
                     </div>

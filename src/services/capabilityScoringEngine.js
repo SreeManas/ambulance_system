@@ -147,6 +147,28 @@ const EMERGENCY_TYPE_ALIAS = {
 };
 
 // =============================================================================
+// CITY PROXIMITY ROUTING GUARD (Production Hardening)
+// =============================================================================
+
+const MAX_ROUTING_RADIUS_KM = 150;          // Ignore hospitals beyond 150km
+const CROSS_CITY_DISTANCE_PENALTY_KM = 200; // +200km virtual penalty for different city
+const CROSS_CITY_SCORE_PENALTY = 0.60;      // Reduce score to 60% for cross-city
+
+/**
+ * Detect city mismatch between emergency case and hospital.
+ * Returns true if the hospital is in a DIFFERENT city than the emergency.
+ */
+function isCrossCityMismatch(emergencyCase, hospital) {
+    const caseCity = (emergencyCase?.city || emergencyCase?.pickupCity || '').toLowerCase().trim();
+    const hospCity = (hospital?.basicInfo?.city || hospital?.city || '').toLowerCase().trim();
+
+    // If either city is unknown, skip penalty (don't penalize missing data)
+    if (!caseCity || !hospCity) return false;
+
+    return caseCity !== hospCity;
+}
+
+// =============================================================================
 // NaN-SAFE UTILITY FUNCTIONS (Production Hardening)
 // =============================================================================
 
@@ -249,7 +271,9 @@ export function normalizeHospital(hospital) {
         },
         clinicalCapabilities: hospital.clinicalCapabilities || {},
         serviceAvailability: hospital.serviceAvailability || {},
-        capacityLastUpdated: hospital.capacityLastUpdated || null
+        capacityLastUpdated: hospital.capacityLastUpdated || null,
+        // Preserve city for cross-city routing guard
+        city: hospital.basicInfo?.city || hospital.city || ''
     };
 
     // ──────────────────────────────────────────────────────────────────
@@ -793,6 +817,20 @@ export function scoreHospital(hospital, emergencyCase) {
         };
     }
 
+    // ======================================================================
+    // STEP 3b: City Proximity Guard — penalize cross-city hospitals
+    // ======================================================================
+    let cityPenaltyApplied = false;
+    let effectiveDistanceKm = distanceKm;
+
+    if (isCrossCityMismatch(emergencyCase, safeHospital)) {
+        effectiveDistanceKm += CROSS_CITY_DISTANCE_PENALTY_KM;
+        cityPenaltyApplied = true;
+        if (IS_DEV) {
+            console.warn(`🌍 Cross-city penalty: ${safeHospital.basicInfo.name} (+${CROSS_CITY_DISTANCE_PENALTY_KM}km virtual)`);
+        }
+    }
+
     // ==========================================================================
     // STEP 4: Calculate all component scores with safe guards
     // ==========================================================================
@@ -805,7 +843,7 @@ export function scoreHospital(hospital, emergencyCase) {
     const equipmentResult = calculateEquipmentScore(safeHospital, emergencyCase, profile);
     const bedResult = calculateBedScore(safeHospital, emergencyCase, profile);
     const loadResult = calculateLoadScore(safeHospital);
-    const distanceScore = calculateDistanceScore(distanceKm);
+    const distanceScore = calculateDistanceScore(effectiveDistanceKm);
     const freshnessResult = calculateFreshnessPenalty(safeHospital);
 
     // ==========================================================================
@@ -866,6 +904,13 @@ export function scoreHospital(hospital, emergencyCase) {
         }
     }
 
+    // ======================================================================
+    // STEP 7b: Apply cross-city score penalty
+    // ======================================================================
+    if (cityPenaltyApplied) {
+        finalScore = Math.round(finalScore * CROSS_CITY_SCORE_PENALTY);
+    }
+
     // ==========================================================================
     // STEP 8: Debug instrumentation (development only)
     // ==========================================================================
@@ -891,6 +936,10 @@ export function scoreHospital(hospital, emergencyCase) {
     }
 
     if (freshnessResult.reason) recommendationReasons.push(freshnessResult.reason);
+
+    if (cityPenaltyApplied) {
+        recommendationReasons.push('⚠️ Cross-city: distance penalty applied');
+    }
 
     // ==========================================================================
     // STEP 10: Return clean, validated result object
@@ -923,12 +972,29 @@ export function scoreHospital(hospital, emergencyCase) {
     };
 }
 
-export function rankHospitals(hospitals, emergencyCase) {
+export function rankHospitals(hospitals, emergencyCase, options = {}) {
     if (!hospitals?.length) return [];
 
     const scored = hospitals.map(h => scoreHospital(h, emergencyCase));
-    const qualified = scored.filter(h => !h.disqualified);
-    const disqualified = scored.filter(h => h.disqualified);
+
+    // Phase 1: Max routing radius guard — filter hospitals beyond 150km
+    // unless override is explicitly active
+    const withinRadius = options.overrideActive
+        ? scored
+        : scored.map(h => {
+            if (!h.disqualified && h.distanceKm > MAX_ROUTING_RADIUS_KM) {
+                return {
+                    ...h,
+                    disqualified: true,
+                    disqualifyReasons: [`Beyond ${MAX_ROUTING_RADIUS_KM}km routing radius (${h.distanceKm}km)`],
+                    suitabilityScore: 0
+                };
+            }
+            return h;
+        });
+
+    const qualified = withinRadius.filter(h => !h.disqualified);
+    const disqualified = withinRadius.filter(h => h.disqualified);
 
     // Apply tie-breakers to qualified hospitals
     const ranked = applyTieBreakers(qualified);

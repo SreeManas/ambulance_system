@@ -25,7 +25,7 @@ const ROLE_MIGRATION = {
 };
 
 // Valid EMS roles
-const VALID_ROLES = ['paramedic', 'hospital_admin', 'command_center', 'dispatcher', 'admin'];
+const VALID_ROLES = ['paramedic', 'hospital_admin', 'command_center', 'dispatcher', 'admin', 'ambulance_driver'];
 
 // Default role for new users
 const DEFAULT_ROLE = 'paramedic';
@@ -33,6 +33,7 @@ const DEFAULT_ROLE = 'paramedic';
 export default function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [role, setRole] = useState(DEFAULT_ROLE);
+  const [userDoc, setUserDoc] = useState(null);
   const [loading, setLoading] = useState(true);
 
   // Helper to normalize/migrate role
@@ -57,7 +58,8 @@ export default function AuthProvider({ children }) {
           const ref = doc(db, 'users', user.uid);
           const snap = await getDoc(ref);
           if (snap.exists()) {
-            const storedRole = snap.data()?.role;
+            const data = snap.data();
+            const storedRole = data?.role;
             console.log('onAuthStateChanged: Stored role from Firestore:', storedRole);
             const normalizedRole = normalizeRole(storedRole);
             console.log('onAuthStateChanged: Normalized role:', normalizedRole);
@@ -69,6 +71,7 @@ export default function AuthProvider({ children }) {
             }
 
             setRole(normalizedRole);
+            setUserDoc(data);
           } else {
             console.log('onAuthStateChanged: No user document, creating with default role');
             await setDoc(ref, {
@@ -183,6 +186,7 @@ export default function AuthProvider({ children }) {
   const value = {
     currentUser,
     role,
+    userDoc,
     login,
     register,
     logout,

@@ -15,7 +15,7 @@ import { rankHospitals, getTopRecommendations, calculateDistanceKm, normalizeHos
 import {
     MapPin, Clock, AlertTriangle, Building2, Heart, Activity,
     Navigation, Zap, Users, ChevronRight, Timer, RefreshCw, Layers,
-    Ambulance, Phone, CheckCircle, XCircle, Info
+    Ambulance, Phone, CheckCircle, XCircle, Info, ShieldAlert, FileText
 } from "lucide-react";
 import { useMapResize } from "../hooks/useMapResize";
 import { useTPreload, useTBatch } from "../hooks/useT";
@@ -23,6 +23,7 @@ import { PRELOAD_ROUTING } from "../constants/translationKeys";
 import RoutingStatusBanner from "./RoutingStatusBanner.jsx";
 import HospitalExplainabilityPanel from "./HospitalExplainabilityPanel.jsx";
 import DispatcherOverridePanel from "./DispatcherOverridePanel.jsx";
+import OverrideAuditPanel from "./OverrideAuditPanel.jsx";
 import { useAuth } from "./auth/AuthProvider.jsx";
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN || "";
@@ -37,7 +38,8 @@ const DEFAULT_ZOOM = 11;
 const ROUTE_COLORS = {
     primary: "#22c55e",   // Green - top pick
     secondary: "#eab308", // Yellow - 2nd
-    tertiary: "#ef4444"   // Red - 3rd
+    tertiary: "#ef4444",  // Red - 3rd
+    override: "#2563eb"   // Phase 2: Blue - override active
 };
 
 const MARKER_COLORS = {
@@ -171,6 +173,13 @@ export default function RoutingDashboard() {
     const [capacityLastUpdated, setCapacityLastUpdated] = useState(null);
     const recomputeTimeoutRef = useRef(null);
 
+    // Phase 2: Override priority enforcement state
+    const [activeOverride, setActiveOverride] = useState(null);
+    const [showAuditTab, setShowAuditTab] = useState(false);
+
+    // Phase 5: Mapbox resize debounce ref
+    const resizeTimeoutRef = useRef(null);
+
     const db = getFirestore();
 
     // =============================================================================
@@ -225,6 +234,63 @@ export default function RoutingDashboard() {
 
         return () => unsubscribe();
     }, [db]);
+
+    // =============================================================================
+    // PHASE 2: OVERRIDE DETECTION — Listen for dispatch overrides on active case
+    // =============================================================================
+    useEffect(() => {
+        if (!selectedCase?.id || selectedCase.id === 'preview') {
+            setActiveOverride(null);
+            return;
+        }
+
+        // Check if case has override embedded (routing.wasOverridden)
+        if (selectedCase?.routing?.wasOverridden) {
+            setActiveOverride({
+                hospitalId: selectedCase.routing.overriddenHospitalId,
+                hospitalName: selectedCase.routing.overriddenHospitalName,
+                reason: selectedCase.routing.overrideReason,
+                timestamp: selectedCase.routing.overriddenAt,
+                by: selectedCase.routing.overriddenBy
+            });
+        } else {
+            setActiveOverride(null);
+        }
+    }, [selectedCase]);
+
+    // Phase 2: Lock hospital selection when override is active
+    useEffect(() => {
+        if (activeOverride && rankedHospitals.length > 0) {
+            const overrideHospital = rankedHospitals.find(
+                h => h.hospitalId === activeOverride.hospitalId
+            );
+            if (overrideHospital) {
+                setSelectedHospital(overrideHospital);
+            }
+        }
+    }, [activeOverride, rankedHospitals]);
+
+    // Phase 5: Debounced map resize helper
+    const triggerMapResize = useCallback(() => {
+        if (resizeTimeoutRef.current) clearTimeout(resizeTimeoutRef.current);
+        resizeTimeoutRef.current = setTimeout(() => {
+            if (mapRef.current) {
+                mapRef.current.resize();
+            }
+        }, 300);
+    }, []);
+
+    // Phase 5: Window resize + orientation change listener
+    useEffect(() => {
+        const handleResize = () => triggerMapResize();
+        window.addEventListener('resize', handleResize);
+        window.addEventListener('orientationchange', handleResize);
+        return () => {
+            window.removeEventListener('resize', handleResize);
+            window.removeEventListener('orientationchange', handleResize);
+            if (resizeTimeoutRef.current) clearTimeout(resizeTimeoutRef.current);
+        };
+    }, [triggerMapResize]);
 
     // =============================================================================
     // SCORING & RANKING
@@ -400,6 +466,36 @@ export default function RoutingDashboard() {
         }
     }, [mapLoaded, selectedCase?.pickupLocation, rankedHospitals, hospitals]);
 
+    // Phase 2: Fit bounds when override becomes active
+    useEffect(() => {
+        if (!mapRef.current || !mapLoaded || !activeOverride) return;
+        const map = mapRef.current;
+        const pickup = selectedCase?.pickupLocation;
+        if (!pickup) return;
+
+        // Find the override hospital data
+        const overrideHospital = rankedHospitals.find(h => h.hospitalId === activeOverride.hospitalId);
+        if (!overrideHospital) return;
+
+        const hospitalData = hospitals.find(h => h.id === overrideHospital.hospitalId);
+        if (!hospitalData?.basicInfo?.location) return;
+
+        // Create bounds that include pickup and override hospital
+        const bounds = new mapboxgl.LngLatBounds();
+        bounds.extend([pickup.longitude, pickup.latitude]);
+        bounds.extend([
+            hospitalData.basicInfo.location.longitude,
+            hospitalData.basicInfo.location.latitude
+        ]);
+
+        map.fitBounds(bounds, {
+            padding: { top: 80, bottom: 80, left: 80, right: 420 }, // Account for right panel
+            maxZoom: 14,
+            duration: 1000,
+            essential: true
+        });
+    }, [mapLoaded, activeOverride, selectedCase?.pickupLocation, rankedHospitals, hospitals]);
+
     // Fly to selected hospital when clicked in panel
     useEffect(() => {
         if (!mapRef.current || !mapLoaded || !selectedHospital) return;
@@ -469,17 +565,32 @@ export default function RoutingDashboard() {
             setIsLoadingRoutes(true);
             const top3 = rankedHospitals.filter(h => !h.disqualified).slice(0, 3);
 
+            // Fetch routes for top 3 AI recommendations
             for (const hospital of top3) {
                 const hospitalData = hospitals.find(h => h.id === hospital.hospitalId);
                 if (hospitalData?.basicInfo?.location) {
                     await fetchRoute(selectedCase.pickupLocation, hospitalData.basicInfo.location);
                 }
             }
+
+            // Phase 2: Also fetch route for override hospital if it exists and is not in top 3
+            if (activeOverride && activeOverride.hospitalId) {
+                const overrideHospital = rankedHospitals.find(h => h.hospitalId === activeOverride.hospitalId);
+                const isInTop3 = top3.some(h => h.hospitalId === activeOverride.hospitalId);
+
+                if (overrideHospital && !isInTop3) {
+                    const hospitalData = hospitals.find(h => h.id === overrideHospital.hospitalId);
+                    if (hospitalData?.basicInfo?.location) {
+                        await fetchRoute(selectedCase.pickupLocation, hospitalData.basicInfo.location);
+                    }
+                }
+            }
+
             setIsLoadingRoutes(false);
         };
 
         fetchTopRoutes();
-    }, [selectedCase, rankedHospitals, hospitals, fetchRoute]);
+    }, [selectedCase, rankedHospitals, hospitals, fetchRoute, activeOverride]);
 
     // =============================================================================
     // MAP RENDERING
@@ -628,9 +739,23 @@ export default function RoutingDashboard() {
             markersRef.current.push(marker);
         });
 
-        // Draw routes
+        // Draw routes — Phase 2: Override priority enforcement
+        // Override > AI recommendation > Distance fallback
         const top3 = rankedHospitals.filter(h => !h.disqualified).slice(0, 3);
-        top3.forEach((hospital, index) => {
+
+        // Phase 2: If override is active and not in top 3, add it to routes to render
+        const hospitalsToRender = [...top3];
+        if (activeOverride && activeOverride.hospitalId) {
+            const isInTop3 = top3.some(h => h.hospitalId === activeOverride.hospitalId);
+            if (!isInTop3) {
+                const overrideHospital = rankedHospitals.find(h => h.hospitalId === activeOverride.hospitalId);
+                if (overrideHospital) {
+                    hospitalsToRender.push(overrideHospital);
+                }
+            }
+        }
+
+        hospitalsToRender.forEach((hospital, index) => {
             const hospitalData = hospitals.find(h => h.id === hospital.hospitalId);
             if (!hospitalData?.basicInfo?.location) return;
 
@@ -639,9 +764,26 @@ export default function RoutingDashboard() {
 
             if (!routeGeo) return;
 
-            const sourceId = `route-${index}`;
-            const color = index === 0 ? ROUTE_COLORS.primary : (index === 1 ? ROUTE_COLORS.secondary : ROUTE_COLORS.tertiary);
-            const width = index === 0 ? 6 : 4;
+            const sourceId = `route-${hospital.hospitalId}`; // Use hospital ID instead of index for stability
+            const isOverrideRoute = activeOverride && hospital.hospitalId === activeOverride.hospitalId;
+
+            // Phase 2: Override route = BLUE, AI routes fade when override active
+            let color, width, opacity;
+            if (isOverrideRoute) {
+                color = ROUTE_COLORS.override;  // Blue for override
+                width = 7;
+                opacity = 1.0;
+            } else if (activeOverride) {
+                // AI routes fade when override is active
+                const aiIndex = top3.findIndex(h => h.hospitalId === hospital.hospitalId);
+                color = aiIndex === 0 ? ROUTE_COLORS.primary : (aiIndex === 1 ? ROUTE_COLORS.secondary : ROUTE_COLORS.tertiary);
+                width = 3;
+                opacity = 0.25;  // Heavily faded
+            } else {
+                color = index === 0 ? ROUTE_COLORS.primary : (index === 1 ? ROUTE_COLORS.secondary : ROUTE_COLORS.tertiary);
+                width = index === 0 ? 6 : 4;
+                opacity = showCompareMode || index === 0 ? 0.8 : 0.3;
+            }
 
             if (!map.getSource(sourceId)) {
                 map.addSource(sourceId, {
@@ -663,7 +805,7 @@ export default function RoutingDashboard() {
                     paint: {
                         "line-color": color,
                         "line-width": width,
-                        "line-opacity": showCompareMode || index === 0 ? 0.8 : 0.3
+                        "line-opacity": opacity
                     }
                 });
 
@@ -674,7 +816,7 @@ export default function RoutingDashboard() {
         // Note: Viewport management handled by dedicated useEffects above
         // (flyTo on case selection, fitBounds on hospital ranking, fly on hospital click)
 
-    }, [mapLoaded, selectedCase, rankedHospitals, hospitals, routes, showCompareMode, goldenHourRemaining]);
+    }, [mapLoaded, selectedCase, rankedHospitals, hospitals, routes, showCompareMode, goldenHourRemaining, activeOverride]);
 
     // =============================================================================
     // RENDER
@@ -684,8 +826,27 @@ export default function RoutingDashboard() {
 
     return (
         <div className="min-h-screen bg-gray-900 flex flex-col">
-            {/* Decision Banner */}
-            {topRecommendation && (
+            {/* Phase 2: Decision Banner — Override takes priority over AI */}
+            {activeOverride ? (
+                <div className="bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 text-white px-6 py-3 shadow-lg">
+                    <div className="max-w-7xl mx-auto flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-2">
+                                <ShieldAlert className="w-6 h-6" />
+                                <span className="font-bold text-lg">MANUAL OVERRIDE ACTIVE</span>
+                            </div>
+                            <span className="text-xl font-semibold">{activeOverride.hospitalName}</span>
+                            <span className="bg-white/20 px-3 py-1 rounded-full text-sm font-medium">
+                                AI Recommendation Bypassed
+                            </span>
+                        </div>
+                        <div className="flex items-center gap-2 bg-amber-500 px-4 py-2 rounded-lg">
+                            <AlertTriangle className="w-5 h-5" />
+                            <span className="font-bold text-sm">Dispatched Override</span>
+                        </div>
+                    </div>
+                </div>
+            ) : topRecommendation ? (
                 <div className="bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-700 text-white px-6 py-3 shadow-lg">
                     <div className="max-w-7xl mx-auto flex items-center justify-between">
                         <div className="flex items-center gap-4">
@@ -709,7 +870,7 @@ export default function RoutingDashboard() {
                         )}
                     </div>
                 </div>
-            )}
+            ) : null}
 
             {/* Header */}
             <div className="bg-gray-800 border-b border-gray-700 px-6 py-4">
@@ -802,6 +963,13 @@ export default function RoutingDashboard() {
                         <div className="mt-4 pt-3 border-t border-gray-700">
                             <h4 className="text-white font-medium mb-2 text-sm">{T.routeLines}</h4>
                             <div className="space-y-2">
+                                {/* Phase 2: Show override route in legend when active */}
+                                {activeOverride && (
+                                    <div className="flex items-center gap-2">
+                                        <div className="w-8 h-1 rounded" style={{ background: ROUTE_COLORS.override }}></div>
+                                        <span className="text-blue-300 text-sm font-medium">Manual Override</span>
+                                    </div>
+                                )}
                                 <div className="flex items-center gap-2">
                                     <div className="w-8 h-1 rounded" style={{ background: ROUTE_COLORS.primary }}></div>
                                     <span className="text-gray-300 text-sm">{T.primaryRoute}</span>
@@ -896,110 +1064,133 @@ export default function RoutingDashboard() {
                         </h3>
 
                         <div className="space-y-3">
-                            {rankedHospitals.filter(h => !h.disqualified).slice(0, 5).map((hospital, index) => {
-                                const isSelected = selectedHospital?.hospitalId === hospital.hospitalId;
-                                const hospitalData = hospitals.find(h => h.id === hospital.hospitalId);
+                            {(() => {
+                                // Phase 2: Include override hospital even if not in top 5
+                                const top5 = rankedHospitals.filter(h => !h.disqualified).slice(0, 5);
+                                const hospitalsToDisplay = [...top5];
 
-                                return (
-                                    <div
-                                        key={hospital.hospitalId}
-                                        onClick={() => setSelectedHospital(hospital)}
-                                        className={`p-4 rounded-xl cursor-pointer transition-all ${isSelected
-                                            ? "bg-emerald-500/20 border-2 border-emerald-500"
-                                            : "bg-gray-700/50 border border-gray-600 hover:bg-gray-700"
-                                            }`}
-                                    >
-                                        <div className="flex items-start justify-between mb-2">
-                                            <div className="flex items-center gap-2">
-                                                <span
-                                                    className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold"
-                                                    style={{ background: getMarkerColor(index + 1, rankedHospitals.length) }}
-                                                >
-                                                    {index + 1}
-                                                </span>
-                                                <span className="font-medium text-white text-sm">{hospital.hospitalName}</span>
+                                // Add override hospital if it's not already in top 5
+                                if (activeOverride && activeOverride.hospitalId) {
+                                    const isInTop5 = top5.some(h => h.hospitalId === activeOverride.hospitalId);
+                                    if (!isInTop5) {
+                                        const overrideHospital = rankedHospitals.find(h => h.hospitalId === activeOverride.hospitalId);
+                                        if (overrideHospital) {
+                                            hospitalsToDisplay.push(overrideHospital);
+                                        }
+                                    }
+                                }
+
+                                return hospitalsToDisplay.map((hospital, index) => {
+                                    const isSelected = selectedHospital?.hospitalId === hospital.hospitalId;
+                                    const hospitalData = hospitals.find(h => h.id === hospital.hospitalId);
+                                    const isOverrideHospital = activeOverride && hospital.hospitalId === activeOverride.hospitalId;
+
+                                    return (
+                                        <div
+                                            key={hospital.hospitalId}
+                                            onClick={() => setSelectedHospital(hospital)}
+                                            className={`p-4 rounded-xl cursor-pointer transition-all ${isSelected
+                                                ? isOverrideHospital
+                                                    ? "bg-blue-500/20 border-2 border-blue-500"
+                                                    : "bg-emerald-500/20 border-2 border-emerald-500"
+                                                : "bg-gray-700/50 border border-gray-600 hover:bg-gray-700"
+                                                }`}
+                                        >
+                                            <div className="flex items-start justify-between mb-2">
+                                                <div className="flex items-center gap-2">
+                                                    <span
+                                                        className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold"
+                                                        style={{ background: isOverrideHospital ? ROUTE_COLORS.override : getMarkerColor(index + 1, rankedHospitals.length) }}
+                                                    >
+                                                        {isOverrideHospital ? '⚡' : index + 1}
+                                                    </span>
+                                                    <span className="font-medium text-white text-sm">{hospital.hospitalName}</span>
+                                                    {isOverrideHospital && (
+                                                        <span className="px-2 py-0.5 bg-blue-500/30 text-blue-300 text-xs rounded-full font-medium">Override</span>
+                                                    )}
+                                                </div>
+                                                <ChevronRight className={`w-5 h-5 transition-transform ${isSelected ? "rotate-90 text-emerald-400" : "text-gray-500"}`} />
                                             </div>
-                                            <ChevronRight className={`w-5 h-5 transition-transform ${isSelected ? "rotate-90 text-emerald-400" : "text-gray-500"}`} />
-                                        </div>
 
-                                        <div className="grid grid-cols-3 gap-2 text-center">
-                                            <div className="bg-gray-800/50 rounded-lg p-2">
-                                                <div className="text-lg font-bold text-white">{hospital.suitabilityScore ?? 0}</div>
-                                                <div className="text-xs text-gray-400">{T.score}</div>
+                                            <div className="grid grid-cols-3 gap-2 text-center">
+                                                <div className="bg-gray-800/50 rounded-lg p-2">
+                                                    <div className="text-lg font-bold text-white">{hospital.suitabilityScore ?? 0}</div>
+                                                    <div className="text-xs text-gray-400">{T.score}</div>
+                                                </div>
+                                                <div className="bg-gray-800/50 rounded-lg p-2">
+                                                    <div className="text-lg font-bold text-blue-400">{hospital.etaMinutes != null && isFinite(hospital.etaMinutes) ? hospital.etaMinutes : '—'}</div>
+                                                    <div className="text-xs text-gray-400">min</div>
+                                                </div>
+                                                <div className="bg-gray-800/50 rounded-lg p-2">
+                                                    <div className="text-lg font-bold text-purple-400">{hospital.distanceKm != null && hospital.distanceKm < 999 ? hospital.distanceKm : '—'}</div>
+                                                    <div className="text-xs text-gray-400">km</div>
+                                                </div>
                                             </div>
-                                            <div className="bg-gray-800/50 rounded-lg p-2">
-                                                <div className="text-lg font-bold text-blue-400">{hospital.etaMinutes != null && isFinite(hospital.etaMinutes) ? hospital.etaMinutes : '—'}</div>
-                                                <div className="text-xs text-gray-400">min</div>
-                                            </div>
-                                            <div className="bg-gray-800/50 rounded-lg p-2">
-                                                <div className="text-lg font-bold text-purple-400">{hospital.distanceKm != null && hospital.distanceKm < 999 ? hospital.distanceKm : '—'}</div>
-                                                <div className="text-xs text-gray-400">km</div>
-                                            </div>
-                                        </div>
 
-                                        {isSelected && (
-                                            <div className="mt-3 pt-3 border-t border-gray-600">
-                                                <HospitalExplainabilityPanel hospital={hospital} compact={false} />
-                                                {/* Go To Hospital Navigation Button */}
-                                                {selectedCase && (
-                                                    <button
-                                                        onClick={async (e) => {
-                                                            e.stopPropagation();
-                                                            const pickupLoc = selectedCase.pickupLocation || selectedCase.location;
-                                                            const hospLoc = hospitalData?.location || hospitalData?.basicInfo?.location;
-                                                            const origin = pickupLoc ? [pickupLoc.longitude || pickupLoc.lng, pickupLoc.latitude || pickupLoc.lat] : null;
-                                                            const dest = hospLoc ? [hospLoc.longitude || hospLoc.lng, hospLoc.latitude || hospLoc.lat] : null;
-                                                            const ambulanceId = `amb_${selectedCase.id || Date.now()}`;
-                                                            const trackingLink = `${window.location.origin}/track/${ambulanceId}`;
+                                            {isSelected && (
+                                                <div className="mt-3 pt-3 border-t border-gray-600">
+                                                    <HospitalExplainabilityPanel hospital={hospital} compact={false} />
+                                                    {/* Go To Hospital Navigation Button */}
+                                                    {selectedCase && (
+                                                        <button
+                                                            onClick={async (e) => {
+                                                                e.stopPropagation();
+                                                                const pickupLoc = selectedCase.pickupLocation || selectedCase.location;
+                                                                const hospLoc = hospitalData?.location || hospitalData?.basicInfo?.location;
+                                                                const origin = pickupLoc ? [pickupLoc.longitude || pickupLoc.lng, pickupLoc.latitude || pickupLoc.lat] : null;
+                                                                const dest = hospLoc ? [hospLoc.longitude || hospLoc.lng, hospLoc.latitude || hospLoc.lat] : null;
+                                                                const ambulanceId = `amb_${selectedCase.id || Date.now()}`;
+                                                                const trackingLink = `${window.location.origin}/track/${ambulanceId}`;
 
-                                                            // Trigger navigation
-                                                            routerNavigate('/navigate', {
-                                                                state: {
-                                                                    caseData: selectedCase,
-                                                                    hospitalData: hospital,
-                                                                    origin,
-                                                                    destination: dest,
-                                                                    hospitalName: hospital.hospitalName,
-                                                                    ambulanceId
-                                                                }
-                                                            });
-
-                                                            // AUTOMATED COMMUNICATION (non-blocking)
-                                                            (async () => {
-                                                                try {
-                                                                    // 1. Send dispatch tracking SMS to patient/relatives
-                                                                    await sendDispatchTrackingSMS({
+                                                                // Trigger navigation
+                                                                routerNavigate('/navigate', {
+                                                                    state: {
                                                                         caseData: selectedCase,
-                                                                        ambulanceId,
-                                                                        etaMinutes: hospital.eta || 0,
-                                                                        trackingLink
-                                                                    });
+                                                                        hospitalData: hospital,
+                                                                        origin,
+                                                                        destination: dest,
+                                                                        hospitalName: hospital.hospitalName,
+                                                                        ambulanceId
+                                                                    }
+                                                                });
 
-                                                                    // 2. Send hospital alert SMS
-                                                                    await sendHospitalAlertSMS({
-                                                                        caseData: selectedCase,
-                                                                        hospital,
-                                                                        etaMinutes: hospital.eta || 0
-                                                                    });
+                                                                // AUTOMATED COMMUNICATION (non-blocking)
+                                                                (async () => {
+                                                                    try {
+                                                                        // 1. Send dispatch tracking SMS to patient/relatives
+                                                                        await sendDispatchTrackingSMS({
+                                                                            caseData: selectedCase,
+                                                                            ambulanceId,
+                                                                            etaMinutes: hospital.eta || 0,
+                                                                            trackingLink
+                                                                        });
 
-                                                                    console.log('✅ Communication automation complete');
-                                                                } catch (err) {
-                                                                    console.error('Communication automation error:', err);
-                                                                }
-                                                            })();
-                                                        }}
-                                                        className="mt-3 w-full py-3 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700
+                                                                        // 2. Send hospital alert SMS
+                                                                        await sendHospitalAlertSMS({
+                                                                            caseData: selectedCase,
+                                                                            hospital,
+                                                                            etaMinutes: hospital.eta || 0
+                                                                        });
+
+                                                                        console.log('✅ Communication automation complete');
+                                                                    } catch (err) {
+                                                                        console.error('Communication automation error:', err);
+                                                                    }
+                                                                })();
+                                                            }}
+                                                            className="mt-3 w-full py-3 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700
                                                             text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg
                                                             transition-all hover:shadow-emerald-500/25 hover:scale-[1.02]"
-                                                    >
-                                                        🚑 {T.goToHospital}
-                                                    </button>
-                                                )}
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
+                                                        >
+                                                            🚑 {T.goToHospital}
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                });
+                            })()}
                         </div>
 
                         {/* Disqualified Hospitals */}
@@ -1037,9 +1228,40 @@ export default function RoutingDashboard() {
                                 currentHospital={rankedHospitals.find(h => !h.disqualified)}
                                 allHospitals={rankedHospitals}
                                 canOverride={role === 'dispatcher' || role === 'admin' || role === 'command_center'}
+                                onOverrideComplete={(selectedHospital, overrideDoc) => {
+                                    // Immediately activate override state for instant visual feedback
+                                    setActiveOverride({
+                                        hospitalId: selectedHospital.hospitalId,
+                                        hospitalName: selectedHospital.hospitalName,
+                                        reason: overrideDoc.reasonText,
+                                        timestamp: overrideDoc.timestamp,
+                                        by: overrideDoc.overriddenBy
+                                    });
+                                    // Force hospital selection update
+                                    setSelectedHospital(selectedHospital);
+                                    // Trigger map resize and refit
+                                    triggerMapResize();
+                                }}
                             />
                         </div>
                     )}
+
+                    {/* Phase 3: Override Audit Trail Tab */}
+                    <div className="border-t border-gray-700 mt-4">
+                        <button
+                            onClick={() => { setShowAuditTab(!showAuditTab); triggerMapResize(); }}
+                            className="w-full flex items-center justify-between px-4 py-3 text-gray-400 hover:text-white hover:bg-gray-700/50 transition-colors"
+                        >
+                            <div className="flex items-center gap-2">
+                                <FileText className="w-4 h-4" />
+                                <span className="text-sm font-medium">Override Audit Trail</span>
+                            </div>
+                            <ChevronRight className={`w-4 h-4 transition-transform ${showAuditTab ? 'rotate-90' : ''}`} />
+                        </button>
+                        {showAuditTab && (
+                            <OverrideAuditPanel caseId={selectedCase?.id} maxEntries={10} />
+                        )}
+                    </div>
                 </div>
             </div>
 

@@ -15,11 +15,12 @@ const ROLE_ACCESS = {
     '/command-center': ['dispatcher', 'admin', 'command_center'],
     '/live-capacity': ['hospital_admin', 'command_center', 'dispatcher', 'admin', 'paramedic'],
     '/navigate': ['paramedic', 'dispatcher', 'admin', 'command_center'],
-    '/feedback': ['paramedic', 'dispatcher', 'hospital_admin', 'admin', 'citizen', 'command_center']
+    '/feedback': ['paramedic', 'dispatcher', 'hospital_admin', 'admin', 'citizen', 'command_center'],
+    '/driver-onboarding': ['ambulance_driver', 'admin']
 };
 
 export default function ProtectedRoute({ children }) {
-    const { currentUser, role, loading } = useAuth();
+    const { currentUser, role, userDoc, loading } = useAuth();
     const location = useLocation();
 
     // Loading state
@@ -37,6 +38,23 @@ export default function ProtectedRoute({ children }) {
     // Not authenticated
     if (!currentUser) {
         return <Navigate to="/login" state={{ from: location }} replace />;
+    }
+
+    // Phase 1: Ambulance driver role guard
+    if (role === 'ambulance_driver') {
+        // If onboarding complete, allow fleet tracking (future-ready)
+        if (userDoc?.onboardingCompleted && userDoc?.ambulanceId) {
+            // Allow access to tracking and navigate pages
+            if (['/navigate', '/track', '/driver-onboarding'].some(p => location.pathname.startsWith(p))) {
+                return children;
+            }
+            return <Navigate to="/driver-onboarding" replace />;
+        }
+        // Not onboarded → force to onboarding
+        if (location.pathname !== '/driver-onboarding') {
+            return <Navigate to="/driver-onboarding" replace />;
+        }
+        return children;
     }
 
     // Check role access

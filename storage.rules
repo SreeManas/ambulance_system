@@ -2,36 +2,39 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
-    
-    // ============================================
-    // Incident Photos for Emergency Cases
-    // Path: incidentPhotos/{caseId}/{fileName}
-    // - Authenticated users can read/write
-    // ============================================
+
+    // ================================
+    // Incident Photos (EMS cases)
+    // ================================
     match /incidentPhotos/{caseId}/{fileName} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null
-                   && request.resource.size < 10 * 1024 * 1024  // Max 10MB
-                   && request.resource.contentType.matches('image/.*');
-    }
-    
-    // ============================================
-    // User Profile Photos
-    // Path: profilePhotos/{userId}/{fileName}
-    // ============================================
-    match /profilePhotos/{userId}/{fileName} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && request.auth.uid == userId;
-    }
-    
-    // ============================================
-    // Hospital Documents
-    // Path: hospitalDocs/{hospitalId}/{fileName}
-    // ============================================
-    match /hospitalDocs/{hospitalId}/{fileName} {
       allow read: if request.auth != null;
       allow write: if request.auth != null;
     }
 
+    // ================================
+    // Driver License Uploads
+    // ================================
+    match /driverLicenses/{userId}/{fileName} {
+
+      // Read: driver can read their own license
+      allow read: if request.auth != null
+        && request.auth.uid == userId;
+
+      // Write: driver can upload their own license (5MB max, image or PDF)
+      allow write: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.size < 5 * 1024 * 1024
+        && (
+          request.resource.contentType.matches('image/.*') ||
+          request.resource.contentType == 'application/pdf'
+        );
+    }
+
+    // ================================
+    // Default DENY (important)
+    // ================================
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
   }
 }

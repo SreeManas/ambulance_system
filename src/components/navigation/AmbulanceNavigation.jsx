@@ -106,24 +106,60 @@ export default function AmbulanceNavigation() {
 
     // ─── Golden Hour Countdown ───────────────────────────────────────
     useEffect(() => {
-        if (caseData?.emergencyContext?.incidentTimestamp) {
-            const incident = new Date(caseData.emergencyContext.incidentTimestamp);
-            const end = new Date(incident.getTime() + 60 * 60 * 1000); // +1 hour
-            setGoldenHourEnd(end);
+        // Try to get incident timestamp from multiple possible locations
+        const timestamp = caseData?.emergencyContext?.incidentTimestamp
+            || caseData?.incidentTimestamp
+            || caseData?.timestamp
+            || caseData?.createdAt;
+
+        let goldenHourEndTime;
+
+        if (timestamp) {
+            const incident = new Date(timestamp);
+            // Check if the date is valid
+            if (!isNaN(incident.getTime())) {
+                goldenHourEndTime = incident.getTime() + 60 * 60 * 1000; // +1 hour from incident
+            } else {
+                // Invalid timestamp, use current time
+                console.warn('[Navigation] Invalid timestamp format:', timestamp);
+                goldenHourEndTime = Date.now() + 60 * 60 * 1000; // +1 hour from now
+            }
+        } else {
+            // No timestamp available, start golden hour countdown now
+            console.warn('[Navigation] No incident timestamp found, using current time for golden hour');
+            goldenHourEndTime = Date.now() + 60 * 60 * 1000; // +1 hour from now
         }
+
+        setGoldenHourEnd(new Date(goldenHourEndTime));
     }, [caseData]);
 
     useEffect(() => {
         if (!goldenHourEnd) return;
+
         const timer = setInterval(() => {
-            const diff = goldenHourEnd - Date.now();
+            const now = Date.now();
+            const diff = goldenHourEnd - now;
+
+            // Defensive check for invalid calculations
+            if (isNaN(diff) || !isFinite(diff)) {
+                console.error('[Navigation] Invalid golden hour calculation:', { goldenHourEnd, now, diff });
+                setGoldenHourRemaining('--:--');
+                return;
+            }
+
             if (diff <= 0) {
                 setGoldenHourRemaining('EXPIRED');
                 clearInterval(timer);
             } else {
                 const mins = Math.floor(diff / 60000);
                 const secs = Math.floor((diff % 60000) / 1000);
-                setGoldenHourRemaining(`${mins}:${secs.toString().padStart(2, '0')}`);
+
+                // Additional safety check
+                if (isNaN(mins) || isNaN(secs)) {
+                    setGoldenHourRemaining('--:--');
+                } else {
+                    setGoldenHourRemaining(`${mins}:${secs.toString().padStart(2, '0')}`);
+                }
             }
         }, 1000);
         return () => clearInterval(timer);

@@ -1,17 +1,30 @@
 // src/components/auth/LoginForm.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from './AuthProvider.jsx';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 export default function LoginForm() {
   const { login, register, currentUser, role, logout, signInWithGoogle } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [mode, setMode] = useState('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [demoRole, setDemoRole] = useState('paramedic');
   const [msg, setMsg] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Auto-redirect after successful login
+  useEffect(() => {
+    if (currentUser && role) {
+      // Delay to show success screen briefly
+      const timer = setTimeout(() => {
+        const from = location.state?.from?.pathname || '/';
+        navigate(from, { replace: true });
+      }, 1500); // 1.5 second delay
+      return () => clearTimeout(timer);
+    }
+  }, [currentUser, role, navigate, location]);
 
   if (currentUser) {
     return (
@@ -200,7 +213,8 @@ export default function LoginForm() {
               onChange={(e) => setDemoRole(e.target.value)}
               disabled={loading}
             >
-              <option value="paramedic">🚑 Paramedic / Ambulance Crew</option>
+              <option value="paramedic">🩺 Paramedic / Ambulance Crew</option>
+              <option value="ambulance_driver">🚑 Ambulance Driver</option>
               <option value="hospital_admin">🏥 Hospital Administrator</option>
               <option value="command_center">🎯 Command Center Operator</option>
               <option value="dispatcher">📡 Dispatcher</option>

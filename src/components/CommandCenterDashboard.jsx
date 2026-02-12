@@ -2,7 +2,7 @@
 /**
  * Dispatcher Command Center Dashboard v1.0
  * 
- * Real-time EMS operations control room with:
+ * Real-time MEDROUTER Command Center with:
  * - Multi-ambulance live tracking
  * - Emergency case queue
  * - Hospital load board
@@ -13,8 +13,8 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
-import { getFirestore, collection, onSnapshot, query, orderBy, limit, doc, updateDoc } from "firebase/firestore";
-import { rankHospitals } from "../services/capabilityScoringEngine.js";
+import { getFirestore, collection, onSnapshot, query, orderBy, limit, doc, updateDoc, where } from "firebase/firestore";
+import { rankHospitals, normalizeHospital } from "../services/capabilityScoringEngine.js";
 import {
     Truck, AlertTriangle, Building2, Activity, Navigation, Timer,
     Play, Pause, RotateCcw, Zap, Users, ChevronRight, MapPin,
@@ -31,6 +31,7 @@ mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN || "";
 // =============================================================================
 
 const DEFAULT_CENTER = [77.5946, 12.9716]; // Bangalore
+const HYDERABAD_CENTER = [78.4867, 17.3850]; // Hyderabad
 const DEFAULT_ZOOM = 12;
 
 const AMBULANCE_STATUSES = {
@@ -45,14 +46,18 @@ const AMBULANCE_STATUSES = {
 const AMBULANCE_TYPES = ["ALS", "BLS"];
 
 const INITIAL_AMBULANCES = [
-    { id: "AMB-001", vehicleNumber: "KA-01-EMS-1001", type: "ALS" },
-    { id: "AMB-002", vehicleNumber: "KA-01-EMS-1002", type: "ALS" },
-    { id: "AMB-003", vehicleNumber: "KA-01-EMS-1003", type: "BLS" },
-    { id: "AMB-004", vehicleNumber: "KA-01-EMS-1004", type: "BLS" },
-    { id: "AMB-005", vehicleNumber: "KA-01-EMS-1005", type: "ALS" },
-    { id: "AMB-006", vehicleNumber: "KA-01-EMS-1006", type: "BLS" },
-    { id: "AMB-007", vehicleNumber: "KA-01-EMS-1007", type: "ALS" },
-    { id: "AMB-008", vehicleNumber: "KA-01-EMS-1008", type: "BLS" },
+    // Bangalore fleet
+    { id: "AMB-001", vehicleNumber: "KA-01-EMS-1001", type: "ALS", city: "Bangalore" },
+    { id: "AMB-002", vehicleNumber: "KA-01-EMS-1002", type: "ALS", city: "Bangalore" },
+    { id: "AMB-003", vehicleNumber: "KA-01-EMS-1003", type: "BLS", city: "Bangalore" },
+    { id: "AMB-004", vehicleNumber: "KA-01-EMS-1004", type: "BLS", city: "Bangalore" },
+    { id: "AMB-005", vehicleNumber: "KA-01-EMS-1005", type: "ALS", city: "Bangalore" },
+    { id: "AMB-006", vehicleNumber: "KA-01-EMS-1006", type: "BLS", city: "Bangalore" },
+    // Hyderabad fleet (Phase 6: Multi-city ambulance visibility)
+    { id: "AMB-HYD-001", vehicleNumber: "TS-09-EMS-2001", type: "ALS", city: "Hyderabad" },
+    { id: "AMB-HYD-002", vehicleNumber: "TS-09-EMS-2002", type: "BLS", city: "Hyderabad" },
+    { id: "AMB-HYD-003", vehicleNumber: "TS-09-EMS-2003", type: "ALS", city: "Hyderabad" },
+    { id: "AMB-HYD-004", vehicleNumber: "TS-09-EMS-2004", type: "BLS", city: "Hyderabad" },
 ];
 
 const OSM_STYLE = {
@@ -127,17 +132,24 @@ function getLoadIndicator(count, max = 20) {
 // AMBULANCE SIMULATION ENGINE
 // =============================================================================
 
-function createAmbulanceFleet(center) {
-    return INITIAL_AMBULANCES.map(amb => ({
-        ...amb,
-        currentLocation: generateRandomLocation(center, 8),
-        status: "available",
-        assignedCaseId: null,
-        destinationHospitalId: null,
-        routePath: null,
-        routeProgress: 0,
-        speed: 50 // km/h
-    }));
+function createAmbulanceFleet(centers) {
+    // Phase 6: Multi-city fleet initialization
+    return INITIAL_AMBULANCES.map(amb => {
+        const center = amb.city === 'Hyderabad'
+            ? [HYDERABAD_CENTER[0], HYDERABAD_CENTER[1]]
+            : [DEFAULT_CENTER[0], DEFAULT_CENTER[1]];
+        return {
+            ...amb,
+            currentLocation: generateRandomLocation(center, 8),
+            status: "available",
+            assignedCaseId: null,
+            destinationHospitalId: null,
+            routePath: null,
+            routeProgress: 0,
+            speed: 50, // km/h
+            eta: null   // Phase 7: ETA tracking per ambulance
+        };
+    });
 }
 
 function getNextStatus(currentStatus) {
@@ -157,7 +169,7 @@ function getNextStatus(currentStatus) {
 // =============================================================================
 
 const CMD_LABELS = [
-    "Command Center", "EMS Operations Control", "Available", "Active", "Total",
+    "Command Center", "MEDROUTER Command Center", "Available", "Active", "Total",
     "Unassigned", "Pause", "Start", "Reset", "Ambulance Status",
     "Cases", "Fleet", "Hospitals", "Emergency Queue", "Dispatch",
     "Ambulance Fleet", "Hospital Status", "Ambulance Details",
@@ -204,16 +216,53 @@ export default function CommandCenterDashboard() {
     const [selectedCase, setSelectedCase] = useState(null);
     const [activePanel, setActivePanel] = useState("cases"); // cases, hospitals, fleet, routing
 
+    // Phase 5: Driver-registered ambulance fleet
+    const [driverAmbulances, setDriverAmbulances] = useState([]);
+    const [fleetFilter, setFleetFilter] = useState('combined'); // 'system', 'driver', 'combined'
+
     const db = getFirestore();
 
     // =============================================================================
     // INITIALIZATION
     // =============================================================================
 
-    // Initialize ambulance fleet
+    // Initialize ambulance fleet (Phase 6: Multi-city support)
     useEffect(() => {
-        setAmbulances(createAmbulanceFleet(DEFAULT_CENTER));
+        setAmbulances(createAmbulanceFleet());
     }, []);
+
+    // Phase 5: Listen for driver-registered ambulances from Firestore
+    useEffect(() => {
+        const q = query(
+            collection(db, 'ambulances'),
+            where('source', '==', 'driver_registered')
+        );
+        const unsub = onSnapshot(q, (snapshot) => {
+            const driverAmbs = snapshot.docs.map(doc => {
+                const data = doc.data();
+                return {
+                    id: doc.id,
+                    vehicleNumber: data.vehicleNumber || 'Unknown',
+                    type: data.type || 'BLS',
+                    status: data.status || 'available',
+                    source: 'driver_registered',
+                    driverName: data.driverName || 'Unknown Driver',
+                    driverPhone: data.driverPhone || '',
+                    city: 'Driver',
+                    currentLocation: {
+                        latitude: data.location?.lat || 12.9716,
+                        longitude: data.location?.lng || 77.5946
+                    },
+                    assignedCaseId: data.assignedCaseId || null,
+                    routePath: null,
+                    routeProgress: 0,
+                    verificationStatus: data.verificationStatus || 'pending'
+                };
+            });
+            setDriverAmbulances(driverAmbs);
+        }, (err) => console.error('Driver ambulance listener error:', err));
+        return () => unsub();
+    }, [db]);
 
     // =============================================================================
     // FIRESTORE LISTENERS
@@ -239,10 +288,11 @@ export default function CommandCenterDashboard() {
 
     useEffect(() => {
         const unsubscribe = onSnapshot(collection(db, "hospitals"), (snapshot) => {
-            const hospitalList = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            }));
+            // Phase 4: Normalize hospital data to prevent NaN/undefined capacity
+            const hospitalList = snapshot.docs.map(doc => {
+                const raw = { id: doc.id, ...doc.data() };
+                return normalizeHospital(raw) || raw;
+            });
             setHospitals(hospitalList);
         });
 
@@ -377,12 +427,13 @@ export default function CommandCenterDashboard() {
                             currentLocation: amb.targetLocation
                         };
                     } else if (nextStatus === "arrived") {
-                        // Arrived at hospital
+                        // Phase 7: Arrived at hospital — sync ETA to 0
                         return {
                             ...amb,
                             status: "arrived",
                             routeProgress: 0,
-                            currentLocation: amb.hospitalLocation || amb.currentLocation
+                            currentLocation: amb.hospitalLocation || amb.currentLocation,
+                            eta: 0
                         };
                     } else if (nextStatus === "available") {
                         // Reset ambulance
@@ -429,7 +480,7 @@ export default function CommandCenterDashboard() {
 
             return amb;
         }));
-
+        // Phase 7: Recalculate ETA each tick for active ambulances
         setSimulationTicks(t => t + 1);
     }, [speedMultiplier]);
 
@@ -452,7 +503,7 @@ export default function CommandCenterDashboard() {
 
     const resetFleet = useCallback(() => {
         setIsSimulationRunning(false);
-        setAmbulances(createAmbulanceFleet(DEFAULT_CENTER));
+        setAmbulances(createAmbulanceFleet());
         setSimulationTicks(0);
     }, []);
 
@@ -475,7 +526,7 @@ export default function CommandCenterDashboard() {
         });
         routeLayersRef.current = [];
 
-        // Render ambulance markers
+        // Render ambulance markers (system fleet)
         ambulances.forEach(amb => {
             const statusConfig = AMBULANCE_STATUSES[amb.status];
 
@@ -530,6 +581,43 @@ export default function CommandCenterDashboard() {
             }
         });
 
+        // Phase 5: Render driver-registered ambulance markers (green)
+        driverAmbulances.forEach(amb => {
+            const statusConfig = AMBULANCE_STATUSES[amb.status] || AMBULANCE_STATUSES.available;
+
+            const el = document.createElement("div");
+            el.className = "driver-ambulance-marker cursor-pointer";
+            el.innerHTML = `
+        <div class="relative transition-transform hover:scale-110">
+          <div class="w-8 h-8 rounded-lg flex items-center justify-center shadow-lg border-2 border-white"
+               style="background: #22c55e">
+            <span class="text-white text-sm">🚑</span>
+          </div>
+          <div class="absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 border-white"
+               style="background: #22c55e"></div>
+          <div class="absolute -bottom-1 left-1/2 -translate-x-1/2 px-1 py-0 rounded text-white font-bold shadow" style="font-size:6px;background:#22c55e;">DRV</div>
+        </div>
+      `;
+
+            el.addEventListener("click", () => setSelectedAmbulance(amb));
+
+            const marker = new mapboxgl.Marker({ element: el })
+                .setLngLat([amb.currentLocation.longitude, amb.currentLocation.latitude])
+                .setPopup(
+                    new mapboxgl.Popup({ offset: 25, closeButton: false }).setHTML(
+                        `<div style="padding:8px;font-family:system-ui;">
+                            <div style="font-weight:bold;color:#22c55e;">🚑 Driver Registered</div>
+                            <div style="margin-top:4px;"><b>${amb.driverName}</b></div>
+                            <div style="color:#888;">${amb.vehicleNumber} • ${amb.type}</div>
+                            <div style="color:#888;">📞 ${amb.driverPhone}</div>
+                        </div>`
+                    )
+                )
+                .addTo(map);
+
+            markersRef.current[`amb-${amb.id}`] = marker;
+        });
+
         // Render emergency case markers
         emergencyCases.forEach(ec => {
             if (!ec.pickupLocation) return;
@@ -582,20 +670,29 @@ export default function CommandCenterDashboard() {
             markersRef.current[`hosp-${h.id}`] = marker;
         });
 
-    }, [mapLoaded, ambulances, emergencyCases, hospitals]);
+    }, [mapLoaded, ambulances, driverAmbulances, emergencyCases, hospitals]);
 
     // =============================================================================
     // COMPUTED VALUES
     // =============================================================================
 
     const fleetStats = useMemo(() => {
-        const stats = { available: 0, active: 0, total: ambulances.length };
-        ambulances.forEach(a => {
-            if (a.status === "available") stats.available++;
+        // Combine system + driver ambulances for stats
+        const allAmbs = [...ambulances, ...driverAmbulances];
+        const stats = { available: 0, active: 0, total: allAmbs.length, system: ambulances.length, driver: driverAmbulances.length };
+        allAmbs.forEach(a => {
+            if (a.status === 'available') stats.available++;
             else stats.active++;
         });
         return stats;
-    }, [ambulances]);
+    }, [ambulances, driverAmbulances]);
+
+    // Filtered ambulances for rendering
+    const filteredAmbulances = useMemo(() => {
+        if (fleetFilter === 'system') return ambulances;
+        if (fleetFilter === 'driver') return driverAmbulances;
+        return [...ambulances, ...driverAmbulances];
+    }, [ambulances, driverAmbulances, fleetFilter]);
 
     const unassignedCases = useMemo(() => {
         return emergencyCases.filter(ec =>
@@ -721,7 +818,11 @@ export default function CommandCenterDashboard() {
                         ].map(tab => (
                             <button
                                 key={tab.id}
-                                onClick={() => setActivePanel(tab.id)}
+                                onClick={() => {
+                                    setActivePanel(tab.id);
+                                    // Phase 5: Trigger map resize on tab switch
+                                    setTimeout(() => { if (mapRef.current) mapRef.current.resize(); }, 300);
+                                }}
                                 className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${activePanel === tab.id
                                     ? "bg-gray-700 text-white border-b-2 border-blue-500"
                                     : "text-gray-400 hover:text-white hover:bg-gray-700/50"
@@ -788,18 +889,39 @@ export default function CommandCenterDashboard() {
                         {/* Fleet Panel */}
                         {activePanel === "fleet" && (
                             <div className="space-y-3">
-                                <h3 className="text-white font-medium mb-3">{C.ambulanceFleet} ({ambulances.length})</h3>
+                                <h3 className="text-white font-medium mb-1">{C.ambulanceFleet} ({filteredAmbulances.length})</h3>
 
-                                {ambulances.map(amb => {
-                                    const statusConfig = AMBULANCE_STATUSES[amb.status];
+                                {/* Micro-fix #5: Fleet Source Filter Toggle */}
+                                <div className="flex items-center gap-1 bg-gray-800 rounded-lg p-1 mb-3">
+                                    {[
+                                        { key: 'combined', label: 'All', count: fleetStats.total },
+                                        { key: 'system', label: 'System', count: fleetStats.system },
+                                        { key: 'driver', label: 'Driver', count: fleetStats.driver },
+                                    ].map(f => (
+                                        <button
+                                            key={f.key}
+                                            onClick={() => setFleetFilter(f.key)}
+                                            className={`flex-1 px-2 py-1.5 rounded-md text-xs font-medium transition-all ${fleetFilter === f.key
+                                                ? f.key === 'driver' ? 'bg-green-600 text-white' : 'bg-blue-600 text-white'
+                                                : 'text-gray-400 hover:text-gray-200'
+                                                }`}
+                                        >
+                                            {f.label} ({f.count})
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {filteredAmbulances.map(amb => {
+                                    const statusConfig = AMBULANCE_STATUSES[amb.status] || AMBULANCE_STATUSES.available;
                                     const assignedCase = emergencyCases.find(c => c.id === amb.assignedCaseId);
+                                    const isDriverAmb = amb.source === 'driver_registered';
 
                                     return (
                                         <div
                                             key={amb.id}
                                             onClick={() => setSelectedAmbulance(amb)}
                                             className={`p-3 rounded-lg border cursor-pointer transition-all ${selectedAmbulance?.id === amb.id
-                                                ? "bg-blue-500/20 border-blue-500"
+                                                ? isDriverAmb ? "bg-green-500/20 border-green-500" : "bg-blue-500/20 border-blue-500"
                                                 : "bg-gray-700/50 border-gray-600 hover:bg-gray-700"
                                                 }`}
                                         >
@@ -807,14 +929,32 @@ export default function CommandCenterDashboard() {
                                                 <div className="flex items-center gap-2">
                                                     <span className="text-white font-medium text-sm">{amb.vehicleNumber}</span>
                                                     <span className="px-1.5 py-0.5 bg-gray-600 text-gray-300 rounded text-xs">{amb.type}</span>
+                                                    {/* Source badge */}
+                                                    {isDriverAmb ? (
+                                                        <span className="px-1.5 py-0.5 rounded text-xs font-bold bg-green-500/30 text-green-300">DRV</span>
+                                                    ) : (
+                                                        <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${amb.city === 'Hyderabad' ? 'bg-purple-500/30 text-purple-300' : 'bg-blue-500/30 text-blue-300'}`}>
+                                                            {amb.city === 'Hyderabad' ? 'HYD' : 'BLR'}
+                                                        </span>
+                                                    )}
                                                 </div>
                                                 <span
                                                     className="px-2 py-0.5 rounded text-xs text-white"
-                                                    style={{ background: statusConfig.color }}
+                                                    style={{ background: isDriverAmb ? '#22c55e' : statusConfig.color }}
                                                 >
                                                     {statusConfig.label}
                                                 </span>
                                             </div>
+
+                                            {/* Driver info for driver-registered ambulances */}
+                                            {isDriverAmb && (
+                                                <div className="text-xs text-green-400 mb-1">
+                                                    🧑‍✈️ {amb.driverName}
+                                                    {amb.verificationStatus === 'pending' && (
+                                                        <span className="ml-2 px-1.5 py-0.5 bg-amber-500/20 text-amber-400 rounded text-xs">⏳ Pending</span>
+                                                    )}
+                                                </div>
+                                            )}
 
                                             {assignedCase && (
                                                 <div className="text-xs text-gray-400">
@@ -829,7 +969,7 @@ export default function CommandCenterDashboard() {
                                                             className="h-full rounded-full transition-all"
                                                             style={{
                                                                 width: `${amb.routeProgress * 100}%`,
-                                                                background: statusConfig.color
+                                                                background: isDriverAmb ? '#22c55e' : statusConfig.color
                                                             }}
                                                         />
                                                     </div>
@@ -847,10 +987,12 @@ export default function CommandCenterDashboard() {
                                 <h3 className="text-white font-medium mb-3">{C.hospitalStatus} ({hospitals.length})</h3>
 
                                 {hospitals.map(h => {
-                                    const beds = h.capacity?.bedsByType || {};
-                                    const icuCount = beds.icu?.available || 0;
+                                    // Phase 4: Use normalized bedAvailability instead of broken capacity.bedsByType
+                                    const icuCount = h.bedAvailability?.icu?.available ?? 0;
+                                    const generalCount = h.bedAvailability?.emergency?.available ?? h.bedAvailability?.available ?? 0;
                                     const status = h.emergencyReadiness?.status || "available";
-                                    const loadIndicator = getLoadIndicator(h.emergencyReadiness?.queueLength || 0);
+                                    const queueLen = h.emergencyReadiness?.ambulanceQueue ?? h.emergencyReadiness?.queueLength ?? 0;
+                                    const loadIndicator = getLoadIndicator(queueLen);
 
                                     return (
                                         <div
@@ -872,11 +1014,11 @@ export default function CommandCenterDashboard() {
                                                     <div className="text-gray-400 text-xs">ICU</div>
                                                 </div>
                                                 <div className="bg-gray-800 rounded p-2">
-                                                    <div className="text-white font-bold">{beds.general?.available || 0}</div>
+                                                    <div className="text-white font-bold">{generalCount}</div>
                                                     <div className="text-gray-400 text-xs">{C.general}</div>
                                                 </div>
                                                 <div className="bg-gray-800 rounded p-2">
-                                                    <div className="text-white font-bold">{h.emergencyReadiness?.queueLength || 0}</div>
+                                                    <div className="text-white font-bold">{queueLen}</div>
                                                     <div className="text-gray-400 text-xs">{C.queue}</div>
                                                 </div>
                                             </div>
@@ -908,8 +1050,34 @@ export default function CommandCenterDashboard() {
                                 </div>
                                 <div className="flex justify-between">
                                     <span className="text-gray-400">{C.status}</span>
-                                    <span className="text-white">{AMBULANCE_STATUSES[selectedAmbulance.status].label}</span>
+                                    <span className="text-white">{(AMBULANCE_STATUSES[selectedAmbulance.status] || AMBULANCE_STATUSES.available).label}</span>
                                 </div>
+                                {/* Driver info for driver-registered ambulances */}
+                                {selectedAmbulance.source === 'driver_registered' && (
+                                    <>
+                                        <div className="flex justify-between">
+                                            <span className="text-gray-400">Driver</span>
+                                            <span className="text-green-400 font-medium">{selectedAmbulance.driverName}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-gray-400">Phone</span>
+                                            <span className="text-gray-300">{selectedAmbulance.driverPhone}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-gray-400">Source</span>
+                                            <span className="px-2 py-0.5 bg-green-500/20 text-green-400 rounded text-xs font-bold">Driver Registered</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-gray-400">Verified</span>
+                                            <span className={`px-2 py-0.5 rounded text-xs font-bold ${selectedAmbulance.verificationStatus === 'approved'
+                                                    ? 'bg-emerald-500/20 text-emerald-400'
+                                                    : 'bg-amber-500/20 text-amber-400'
+                                                }`}>
+                                                {selectedAmbulance.verificationStatus === 'approved' ? '✓ Verified' : '⏳ Pending'}
+                                            </span>
+                                        </div>
+                                    </>
+                                )}
                                 {selectedAmbulance.status === "available" && (
                                     <button
                                         onClick={() => {
