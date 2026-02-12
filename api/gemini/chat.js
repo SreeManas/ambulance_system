@@ -72,48 +72,70 @@ export default async function handler(req, res) {
     }
 
     try {
-        // Parse body if needed (Vercel sends it as Buffer/string)
-        let body = req.body;
-        if (typeof body === 'string') {
-            try {
-                body = JSON.parse(body);
-            } catch (e) {
-                return res.status(400).json({
-                    success: false,
-                    error: 'Invalid JSON in request body'
-                });
-            }
+        // ═══════════════════════════════════════════════════════
+        // STEP 1: Parse and validate request body
+        // ═══════════════════════════════════════════════════════
+        let body;
+
+        // Handle different body types (Buffer, string, object)
+        if (Buffer.isBuffer(req.body)) {
+            body = JSON.parse(req.body.toString('utf-8'));
+        } else if (typeof req.body === 'string') {
+            body = JSON.parse(req.body);
+        } else if (typeof req.body === 'object') {
+            body = req.body;
+        } else {
+            console.error('Invalid body type:', typeof req.body);
+            return res.status(400).json({
+                success: false,
+                error: 'Invalid request body format'
+            });
         }
+
+        console.log('Parsed body:', JSON.stringify(body, null, 2));
 
         const { message, role, contextIds, sessionId } = body;
 
-        // Validate inputs
+        // Validate message
         if (!message || typeof message !== 'string' || message.trim().length === 0) {
+            console.error('Validation failed: Invalid message', { message });
             return res.status(400).json({
                 success: false,
-                error: 'Message is required and must be a non-empty string'
+                error: 'Message is required and must be a non-empty string',
+                received: { message, type: typeof message }
             });
         }
 
+        // ═══════════════════════════════════════════════════════
+        // STEP 2: Check API key
+        // ═══════════════════════════════════════════════════════
         const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
         if (!GEMINI_API_KEY) {
+            console.error('GEMINI_API_KEY not configured');
             return res.status(500).json({
                 success: false,
-                error: 'Gemini API key not configured'
+                error: 'Gemini API key not configured on server'
             });
         }
 
-        // Validate role
-        const userRole = VALID_ROLES.includes(role) ? role : 'paramedic';
+        console.log('API key configured:', GEMINI_API_KEY ? 'Yes' : 'No');
 
-        // Build context (stateless for MVP)
+        // ═══════════════════════════════════════════════════════
+        // STEP 3: Validate role
+        // ═══════════════════════════════════════════════════════
+        const userRole = VALID_ROLES.includes(role) ? role : 'paramedic';
+        console.log('User role:', userRole);
+
+        // Build context
         const roleContext = buildSimpleContext(userRole, contextIds || {});
 
-        // Build system prompt
+        // ═══════════════════════════════════════════════════════
+        // STEP 4: Build Gemini request
+        // ═══════════════════════════════════════════════════════
         const systemPrompt = SYSTEM_PROMPTS[userRole] || SYSTEM_PROMPTS.paramedic;
         const explainability = getExplainabilityInstruction();
-
         const contextJson = JSON.stringify(roleContext.data, null, 2);
+
         const fullSystemPrompt = `${systemPrompt}${explainability}
 
 CURRENT CONTEXT DATA:
@@ -123,56 +145,83 @@ ${contextJson}
 
 Use the above context data to provide accurate, data-driven responses. If the context is empty or incomplete, acknowledge it and provide general EMS guidance.`;
 
-        // Build conversation for Gemini
+        // Build conversation
         const sid = sessionId || `vercel-${userRole}-${Date.now()}`;
         const history = getSessionHistory(sid);
 
         const contents = [
-            // System instruction
             { role: 'user', parts: [{ text: `[SYSTEM INSTRUCTION]\n${fullSystemPrompt}` }] },
             { role: 'model', parts: [{ text: 'Understood. I am ready to assist as your EMS AI Copilot. How can I help?' }] },
-            // Past conversation
             ...history,
-            // Current message
             { role: 'user', parts: [{ text: message.trim() }] }
         ];
 
-        // Call Gemini API
+        const geminiRequest = {
+            contents,
+            generationConfig: {
+                temperature: 0.7,
+                topK: 40,
+                topP: 0.95,
+                maxOutputTokens: 1024,
+            },
+            safetySettings: [
+                { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' }
+            ]
+        };
+
+        console.log('Gemini request prepared:', {
+            model: GEMINI_MODEL,
+            contentsCount: contents.length,
+            messageLength: message.length
+        });
+
+        // ═══════════════════════════════════════════════════════
+        // STEP 5: Call Gemini API
+        // ═══════════════════════════════════════════════════════
         const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+
+        console.log('Calling Gemini API:', GEMINI_URL.replace(GEMINI_API_KEY, 'REDACTED'));
 
         const geminiResponse = await fetch(GEMINI_URL, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents,
-                generationConfig: {
-                    temperature: 0.7,
-                    topK: 40,
-                    topP: 0.95,
-                    maxOutputTokens: 1024,
-                },
-                safetySettings: [
-                    { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-                    { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-                    { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-                    { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' }
-                ]
-            })
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(geminiRequest)
         });
+
+        console.log('Gemini response status:', geminiResponse.status);
 
         if (!geminiResponse.ok) {
             const errorText = await geminiResponse.text();
             console.error(`Gemini API error (${geminiResponse.status}):`, errorText);
+
+            // Try to parse error as JSON for better messages
+            let errorDetail = errorText;
+            try {
+                const errorJson = JSON.parse(errorText);
+                errorDetail = errorJson.error?.message || errorText;
+            } catch (e) {
+                // Keep raw text
+            }
+
             return res.status(502).json({
                 success: false,
                 error: `Gemini API returned ${geminiResponse.status}`,
+                details: errorDetail,
                 fallback: '⚠️ AI Copilot temporarily unavailable. Please try again or consult standard EMS protocols.'
             });
         }
 
         const geminiData = await geminiResponse.json();
+        console.log('Gemini response received successfully');
 
-        // Extract response
+        // ═══════════════════════════════════════════════════════
+        // STEP 6: Extract and return response
+        // ═══════════════════════════════════════════════════════
         const replyText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text
             || 'I apologize, but I was unable to generate a response. Please try again.';
 
@@ -197,9 +246,12 @@ Use the above context data to provide accurate, data-driven responses. If the co
 
     } catch (err) {
         console.error('Chat endpoint error:', err);
+        console.error('Error stack:', err.stack);
+
         return res.status(500).json({
             success: false,
             error: 'Internal server error',
+            details: err.message,
             fallback: '⚠️ Unable to reach AI Copilot. Showing general EMS guidance: Follow standard protocols and contact medical control if needed.'
         });
     }
