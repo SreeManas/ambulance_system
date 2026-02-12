@@ -22,7 +22,7 @@ export default function LoginForm() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
             </svg>
           </div>
-          <div className="text-lg font-bold text-green-900 mb-2">Welcome Back!</div>
+          <div className="text-lg font-bold text-green-900 mb-2">Signed In</div>
         </div>
         <div className="space-y-2 text-sm text-gray-700 mb-6">
           <div className="flex items-center justify-between py-2 px-3 bg-white rounded-lg">
@@ -96,11 +96,11 @@ export default function LoginForm() {
       <div className="text-center">
         <img
           src="/logo.png"
-          alt="EMS Router Logo"
+          alt="MEDROUTER Logo"
           className="w-24 h-24 mx-auto mb-4 object-contain drop-shadow-lg"
         />
-        <div className="text-2xl font-bold text-gray-900 mb-1">EMS Router</div>
-        <div className="text-sm text-gray-500 mb-2">AI-Powered Ambulance Triage & Smart Hospital Routing</div>
+        <div className="text-2xl font-bold text-gray-900 mb-1">MEDROUTER</div>
+        <div className="text-sm text-gray-500 mb-2">Routes that save lives</div>
         <div className="text-gray-600">Access your account</div>
       </div>
 

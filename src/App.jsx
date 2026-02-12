@@ -65,12 +65,12 @@ const Nav = () => {
           <Link to="/" className="flex items-center space-x-3 hover:scale-105 transition-transform duration-200">
             <img
               src="/logo.png"
-              alt="EMS Router Logo"
+              alt="MEDROUTER Logo"
               className="w-10 h-10 rounded-xl shadow-md hover:shadow-lg transition-shadow duration-200 object-contain"
             />
             <div>
-              <h1 className="text-xl font-bold text-gray-900">EMS Router</h1>
-              <p className="text-xs text-gray-500 font-medium">{tEMSPlatform}</p>
+              <h1 className="text-xl font-bold text-gray-900">MEDROUTER</h1>
+              <p className="text-xs text-gray-500 font-medium">Routes that save lives</p>
             </div>
           </Link>
         </div>
@@ -336,8 +336,8 @@ export default function App() {
                           <div className="mx-auto w-12 h-12 bg-gradient-to-br from-red-500 to-red-600 rounded-lg flex items-center justify-center mb-4">
                             <span className="text-white font-bold text-lg">🚑</span>
                           </div>
-                          <h2 className="text-2xl font-bold text-gray-900">Welcome Back</h2>
-                          <p className="text-gray-600 mt-2">Sign in to EMS Router</p>
+                          <h2 className="text-2xl font-bold text-gray-900">MEDROUTER</h2>
+                          <p className="text-gray-600 mt-2">Routes that save lives</p>
                         </div>
                         <div className="card">
                           <div className="card-body">
@@ -354,8 +354,8 @@ export default function App() {
                           <div className="mx-auto w-12 h-12 bg-gradient-to-br from-red-500 to-red-600 rounded-lg flex items-center justify-center mb-4">
                             <span className="text-white font-bold text-lg">🚑</span>
                           </div>
-                          <h2 className="text-2xl font-bold text-gray-900">Welcome Back</h2>
-                          <p className="text-gray-600 mt-2">Sign in to EMS Router</p>
+                          <h2 className="text-2xl font-bold text-gray-900">MEDROUTER</h2>
+                          <p className="text-gray-600 mt-2">Routes that save lives</p>
                         </div>
                         <div className="card">
                           <div className="card-body">
@@ -377,18 +377,18 @@ export default function App() {
                     <div className="w-8 h-8 bg-gradient-to-br from-red-600 to-red-800 rounded-lg flex items-center justify-center shadow-sm">
                       <span className="text-white font-bold text-sm">🚑</span>
                     </div>
-                    <span className="text-lg font-semibold text-gray-900">EMS Router</span>
+                    <span className="text-lg font-semibold text-gray-900">MEDROUTER</span>
                   </div>
                   <div className="flex flex-col items-center space-y-2">
                     <div className="flex items-center space-x-2 text-sm text-gray-600">
-                      <span>© 2025 EMS Routing Platform</span>
+                      <span>© 2025 MEDROUTER</span>
                       <span>•</span>
                       <span>Hackathon Project</span>
                       <span>•</span>
                       <span className="text-red-600 hover:text-red-700 cursor-pointer font-medium">v2.0</span>
                     </div>
                     <p className="text-xs text-gray-500 text-center max-w-md">
-                      AI-Powered Ambulance Triage & Smart Hospital Routing System
+                      MEDROUTER — Routes that save lives
                     </p>
                   </div>
                 </div>

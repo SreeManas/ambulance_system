@@ -1,7 +1,7 @@
 import React from 'react';
 
 /**
- * AppErrorBoundary — Global crash protection for EMS Router
+ * AppErrorBoundary — Global crash protection for MEDROUTER
  * Wraps all major dashboards to prevent full-app crashes.
  * MF10: Provides graceful recovery UI instead of white screen.
  */

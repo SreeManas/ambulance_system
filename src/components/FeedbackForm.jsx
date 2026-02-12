@@ -43,7 +43,7 @@ export default function FeedbackForm() {
   const tPleaseLogin = useT("Please log in to submit feedback");
   const tThankYouFeedback = useT("Thank you for your feedback!");
   const tFeedbackSubmitted = useT("Feedback Submitted!");
-  const tThankYouHelpImprove = useT("Thank you for helping us improve EMS Router.");
+  const tThankYouHelpImprove = useT("Thank you for helping us improve MEDROUTER.");
   const tShareFeedback = useT("Share Your Feedback");
   const tOverallRating = useT("Overall Rating *");
   const tFeedbackCategory = useT("Feedback Category");
@@ -54,7 +54,7 @@ export default function FeedbackForm() {
   const tSubmitFeedback = useT("Submit Feedback");
   const tErrorSubmitting = useT("Error submitting feedback. Please try again.");
   const tPrivacyNote = useT("Privacy Note:");
-  const tPrivacyText = useT("Your feedback helps us improve EMS Router. We collect your email address for response purposes only and will never share your personal information with third parties.");
+  const tPrivacyText = useT("Your feedback helps us improve MEDROUTER. We collect your email address for response purposes only and will never share your personal information with third parties.");
   const tPleaseLoginSubmit = useT("Please log in to submit feedback");
   const tSubmittingAs = useT("Submitting as");
 
@@ -195,8 +195,8 @@ export default function FeedbackForm() {
                 onMouseEnter={() => setHoveredRating(star)}
                 onMouseLeave={() => setHoveredRating(0)}
                 className={`p-2 rounded-full transition-all duration-200 ${star <= (hoveredRating || rating)
-                    ? 'text-yellow-400 bg-yellow-50'
-                    : 'text-gray-300 hover:text-yellow-300 hover:bg-yellow-50'
+                  ? 'text-yellow-400 bg-yellow-50'
+                  : 'text-gray-300 hover:text-yellow-300 hover:bg-yellow-50'
                   }`}
                 disabled={isSubmitting}
               >
@@ -287,8 +287,8 @@ export default function FeedbackForm() {
 
         {submitStatus && (
           <div className={`mt-3 p-3 rounded-md text-sm ${submitStatus.includes('Error') || submitStatus.includes('Please')
-              ? 'bg-red-50 border border-red-200 text-red-800'
-              : 'bg-green-50 border border-green-200 text-green-800'
+            ? 'bg-red-50 border border-red-200 text-red-800'
+            : 'bg-green-50 border border-green-200 text-green-800'
             }`}>
             {submitStatus}
           </div>
