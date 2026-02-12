@@ -221,7 +221,7 @@ export default function HospitalExplainabilityPanel({ hospital, compact = false 
                     e.stopPropagation();
                     setIsExpanded(!isExpanded);
                 }}
-                className="show-mobile-only w-full p-4 flex justify-between items-center bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl shadow-md touch-target"
+                className="w-full p-4 flex justify-between items-center bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl shadow-md touch-target"
             >
                 <div className="flex items-center gap-2">
                     <Brain className="w-5 h-5" />
@@ -230,8 +230,8 @@ export default function HospitalExplainabilityPanel({ hospital, compact = false 
                 {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
             </button>
 
-            {/* Mobile Collapsed Content */}
-            <div className={`show-mobile-only ${isExpanded ? 'block' : 'hidden'} space-y-4`}>
+            {/* Accordion Content - works on all screen sizes */}
+            <div className={`${isExpanded ? 'block' : 'hidden'} space-y-4 mt-4`}>
                 {/* Header */}
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -298,68 +298,7 @@ export default function HospitalExplainabilityPanel({ hospital, compact = false 
                 )}
             </div>
 
-            {/* Desktop Always-Visible Content */}
-            <div className="hidden md:block space-y-4">
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <div className="p-2 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl shadow-sm">
-                            <Brain className="w-4 h-4 text-white" />
-                        </div>
-                        <div>
-                            <h4 className="text-sm font-bold text-gray-900">{E.aiDecision}</h4>
-                            <p className="text-xs text-gray-400">{E.whyScored} {suitabilityScore}/100</p>
-                        </div>
-                    </div>
-                    <div className="text-right">
-                        <div className="text-2xl font-bold text-gray-900">{suitabilityScore}</div>
-                        <div className="text-xs text-gray-400">{E.overallScore}</div>
-                    </div>
-                </div>
-
-                <GoldenHourBadge goldenHour={goldenHour} />
-
-                <div className="space-y-2">
-                    {contributions.map(({ key, score, weight }) => (
-                        <FactorBar
-                            key={key}
-                            factorKey={key}
-                            score={key === 'load' ? (scoreBreakdown.loadPenalty ?? 0) : score}
-                            weight={weight}
-                        />
-                    ))}
-                </div>
-
-                <div className="grid-3-col">
-                    <div className="text-center p-3 bg-gray-50 rounded-xl">
-                        <div className="text-lg font-bold text-gray-900">
-                            {distanceKm != null && distanceKm < 999 ? `${distanceKm}km` : '\u2014'}
-                        </div>
-                        <div className="text-xs text-gray-400">{E.distance}</div>
-                    </div>
-                    <div className="text-center p-3 bg-gray-50 rounded-xl">
-                        <div className="text-lg font-bold text-gray-900">
-                            {etaMinutes != null && etaMinutes < 999 ? `${etaMinutes}min` : '\u2014'}
-                        </div>
-                        <div className="text-xs text-gray-400">{E.eta}</div>
-                    </div>
-                    <div className="text-center p-3 bg-gray-50 rounded-xl">
-                        <div className="text-lg font-bold text-gray-900">
-                            {scoreBreakdown.icuCount ?? 0}
-                        </div>
-                        <div className="text-xs text-gray-400">{E.icuBeds}</div>
-                    </div>
-                </div>
-
-                <ReasonTags reasons={recommendationReasons} />
-
-                {scoreBreakdown.freshnessMultiplier && scoreBreakdown.freshnessMultiplier < 1 && (
-                    <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 rounded-lg border border-amber-200 text-xs text-amber-700">
-                        <AlertTriangle className="w-3.5 h-3.5" />
-                        {E.freshnessPenalty} {Math.round((1 - scoreBreakdown.freshnessMultiplier) * 100)}% {E.reduction}
-                    </div>
-                )}
-            </div>
+            {/* Desktop version removed - using unified accordion version above for all screen sizes */}
         </div>
     );
 }
-
