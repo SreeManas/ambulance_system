@@ -14,6 +14,7 @@ import AmbulanceTrackingViewer from "./components/tracking/AmbulanceTrackingView
 import AppErrorBoundary from "./components/AppErrorBoundary.jsx";
 import EMSChatAssistant from "./components/ai/EMSChatAssistant.jsx";
 import DriverOnboarding from "./pages/DriverOnboarding.jsx";
+import VerificationPending from "./pages/VerificationPending.jsx";
 
 // === SHARED COMPONENTS ===
 import RealTimeStatusIndicator from "./components/RealTimeStatusIndicator.jsx";
@@ -286,6 +287,9 @@ export default function App() {
                   } />
                   <Route path="/command-center" element={
                     <ProtectedRoute><AppErrorBoundary><CommandCenterDashboard /></AppErrorBoundary></ProtectedRoute>
+                  } />
+                  <Route path="/verification-pending" element={
+                    <ProtectedRoute><AppErrorBoundary><VerificationPending /></AppErrorBoundary></ProtectedRoute>
                   } />
                   <Route path="/intake" element={
                     <ProtectedRoute>

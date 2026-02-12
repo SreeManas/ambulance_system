@@ -14,9 +14,10 @@ const ROLE_ACCESS = {
     '/routing': ['dispatcher', 'admin', 'paramedic', 'command_center'],
     '/command-center': ['dispatcher', 'admin', 'command_center'],
     '/live-capacity': ['hospital_admin', 'command_center', 'dispatcher', 'admin', 'paramedic'],
-    '/navigate': ['paramedic', 'dispatcher', 'admin', 'command_center'],
+    '/navigate': ['paramedic', 'dispatcher', 'admin', 'command_center', 'ambulance_driver'],
     '/feedback': ['paramedic', 'dispatcher', 'hospital_admin', 'admin', 'citizen', 'command_center'],
-    '/driver-onboarding': ['ambulance_driver', 'admin']
+    '/driver-onboarding': ['ambulance_driver', 'admin'],
+    '/verification-pending': ['ambulance_driver', 'admin']
 };
 
 export default function ProtectedRoute({ children }) {
@@ -42,13 +43,27 @@ export default function ProtectedRoute({ children }) {
 
     // Phase 1: Ambulance driver role guard
     if (role === 'ambulance_driver') {
-        // If onboarding complete, allow fleet tracking (future-ready)
+        // If onboarding complete, check verification status
         if (userDoc?.onboardingCompleted && userDoc?.ambulanceId) {
-            // Allow access to tracking and navigate pages
-            if (['/navigate', '/track', '/driver-onboarding'].some(p => location.pathname.startsWith(p))) {
+            // Driver is onboarded but pending/rejected verification
+            const verStatus = userDoc?.verificationStatus;
+            if (verStatus !== 'approved') {
+                // Allow access to verification-pending page
+                if (location.pathname === '/verification-pending') {
+                    return children;
+                }
+                // Allow access to onboarding page (to view completed state)
+                if (location.pathname === '/driver-onboarding') {
+                    return children;
+                }
+                // Redirect everything else to verification-pending
+                return <Navigate to="/verification-pending" replace />;
+            }
+            // Approved driver — allow tracking and navigate pages
+            if (['/navigate', '/track', '/driver-onboarding', '/verification-pending', '/feedback'].some(p => location.pathname.startsWith(p))) {
                 return children;
             }
-            return <Navigate to="/driver-onboarding" replace />;
+            return <Navigate to="/navigate" replace />;
         }
         // Not onboarded → force to onboarding
         if (location.pathname !== '/driver-onboarding') {

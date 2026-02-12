@@ -86,13 +86,14 @@ service cloud.firestore {
 
     // ============================================
     // Ambulances Collection
-    // - ambulance_driver: create own (driverId == uid), read own, update own
+    // - ambulance_driver: create own (driverId == uid), read own, update own ONLY if pending
     // - dispatcher: read all, update
-    // - admin: full access
+    // - admin: full access (including verification status changes)
     // ============================================
     match /ambulances/{ambulanceId} {
       allow read: if isAuthenticated() && (
         isAdmin() || isDispatcher() || getUserData().role == 'command_center' ||
+        isParamedic() ||
         (isAmbulanceDriver() && resource.data.driverId == request.auth.uid)
       );
       allow create: if isAuthenticated() && (
@@ -101,7 +102,8 @@ service cloud.firestore {
       );
       allow update: if isAuthenticated() && (
         isDispatcher() || isAdmin() ||
-        (isAmbulanceDriver() && resource.data.driverId == request.auth.uid)
+        (isAmbulanceDriver() && resource.data.driverId == request.auth.uid
+          && resource.data.verificationStatus == 'pending')
       );
       allow delete: if isAdmin();
     }

@@ -579,7 +579,11 @@ export default function DriverOnboarding() {
                 },
                 status: 'available',
                 source: 'driver_registered',
+                // Verification fields — admin must approve before driver appears in fleet
                 verificationStatus: 'pending',
+                verifiedBy: null,
+                verifiedAt: null,
+                rejectionReason: null,
                 createdAt: serverTimestamp(),
             };
             console.log('[Onboarding] Step 3/4: Creating ambulance doc. driverId:', uid);
@@ -603,6 +607,7 @@ export default function DriverOnboarding() {
                 await setDoc(doc(db, 'users', uid), {
                     ambulanceId: docRef.id,
                     onboardingCompleted: true,
+                    verificationStatus: 'pending',
                     driverName: form.fullName.trim(),
                     driverPhone: form.phone.trim(),
                 }, { merge: true });

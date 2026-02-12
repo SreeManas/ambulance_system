@@ -18,11 +18,13 @@ import { rankHospitals, normalizeHospital } from "../services/capabilityScoringE
 import {
     Truck, AlertTriangle, Building2, Activity, Navigation, Timer,
     Play, Pause, RotateCcw, Zap, Users, ChevronRight, MapPin,
-    Radio, Signal, Target, Gauge, Clock, ArrowRight, Phone
+    Radio, Signal, Target, Gauge, Clock, ArrowRight, Phone, ShieldCheck
 } from "lucide-react";
 import { useMapResize } from "../hooks/useMapResize";
 import { useTPreload, useTBatch } from "../hooks/useT";
 import { PRELOAD_COMMAND_CENTER } from "../constants/translationKeys";
+import { useAuth } from "./auth/AuthProvider.jsx";
+import DriverVerificationPanel from "./DriverVerificationPanel.jsx";
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN || "";
 
@@ -178,6 +180,7 @@ const CMD_LABELS = [
 ];
 
 export default function CommandCenterDashboard() {
+    const { role } = useAuth();
     // Phase 10: Preload translations for this dashboard
     useTPreload(PRELOAD_COMMAND_CENTER);
 
@@ -233,32 +236,36 @@ export default function CommandCenterDashboard() {
 
     // Phase 5: Listen for driver-registered ambulances from Firestore
     useEffect(() => {
+        // Single where clause to avoid needing composite Firestore index
         const q = query(
             collection(db, 'ambulances'),
             where('source', '==', 'driver_registered')
         );
         const unsub = onSnapshot(q, (snapshot) => {
-            const driverAmbs = snapshot.docs.map(doc => {
-                const data = doc.data();
-                return {
-                    id: doc.id,
-                    vehicleNumber: data.vehicleNumber || 'Unknown',
-                    type: data.type || 'BLS',
-                    status: data.status || 'available',
-                    source: 'driver_registered',
-                    driverName: data.driverName || 'Unknown Driver',
-                    driverPhone: data.driverPhone || '',
-                    city: 'Driver',
-                    currentLocation: {
-                        latitude: data.location?.lat || 12.9716,
-                        longitude: data.location?.lng || 77.5946
-                    },
-                    assignedCaseId: data.assignedCaseId || null,
-                    routePath: null,
-                    routeProgress: 0,
-                    verificationStatus: data.verificationStatus || 'pending'
-                };
-            });
+            const driverAmbs = snapshot.docs
+                .map(doc => {
+                    const data = doc.data();
+                    return {
+                        id: doc.id,
+                        vehicleNumber: data.vehicleNumber || 'Unknown',
+                        type: data.type || 'BLS',
+                        status: data.status || 'available',
+                        source: 'driver_registered',
+                        driverName: data.driverName || 'Unknown Driver',
+                        driverPhone: data.driverPhone || '',
+                        city: 'Driver',
+                        currentLocation: {
+                            latitude: data.location?.lat || 12.9716,
+                            longitude: data.location?.lng || 77.5946
+                        },
+                        assignedCaseId: data.assignedCaseId || null,
+                        routePath: null,
+                        routeProgress: 0,
+                        verificationStatus: data.verificationStatus || 'pending'
+                    };
+                })
+                // Only show approved driver ambulances in the fleet
+                .filter(a => a.verificationStatus === 'approved');
             setDriverAmbulances(driverAmbs);
         }, (err) => console.error('Driver ambulance listener error:', err));
         return () => unsub();
@@ -814,7 +821,8 @@ export default function CommandCenterDashboard() {
                         {[
                             { id: "cases", label: C.cases, icon: AlertTriangle },
                             { id: "fleet", label: C.fleet, icon: Truck },
-                            { id: "hospitals", label: C.hospitals, icon: Building2 }
+                            { id: "hospitals", label: C.hospitals, icon: Building2 },
+                            ...(role === 'admin' ? [{ id: "verifications", label: "Verifications", icon: ShieldCheck }] : [])
                         ].map(tab => (
                             <button
                                 key={tab.id}
@@ -1027,6 +1035,11 @@ export default function CommandCenterDashboard() {
                                 })}
                             </div>
                         )}
+
+                        {/* Driver Verifications Panel (Admin Only) */}
+                        {activePanel === "verifications" && role === 'admin' && (
+                            <DriverVerificationPanel />
+                        )}
                     </div>
 
                     {/* Selected Item Details */}
@@ -1070,8 +1083,8 @@ export default function CommandCenterDashboard() {
                                         <div className="flex justify-between">
                                             <span className="text-gray-400">Verified</span>
                                             <span className={`px-2 py-0.5 rounded text-xs font-bold ${selectedAmbulance.verificationStatus === 'approved'
-                                                    ? 'bg-emerald-500/20 text-emerald-400'
-                                                    : 'bg-amber-500/20 text-amber-400'
+                                                ? 'bg-emerald-500/20 text-emerald-400'
+                                                : 'bg-amber-500/20 text-amber-400'
                                                 }`}>
                                                 {selectedAmbulance.verificationStatus === 'approved' ? '✓ Verified' : '⏳ Pending'}
                                             </span>
