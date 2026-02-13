@@ -1046,7 +1046,7 @@ export default function RoutingDashboard() {
                                 </div>
                                 <div>
                                     <span className="text-gray-400">{T.patient}</span>
-                                    <p className="text-white">{selectedCase.patientName || "Unknown"}</p>
+                                    <p className="text-white">{selectedCase.patientInfo?.name || "Unknown"}</p>
                                 </div>
                                 <div>
                                     <span className="text-gray-400">{T.time}</span>

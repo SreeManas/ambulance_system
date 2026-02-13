@@ -376,8 +376,11 @@ export default function PatientVitalsForm() {
             createdAt: serverTimestamp(),
             userId: user.uid,
 
-            // AI Triage Placeholder
-            acuityLevel: null,
+            // Acuity Level - derived from transport priority until AI triage is implemented
+            acuityLevel: transportPriority === 'immediate' ? 5
+                : transportPriority === 'urgent' ? 3
+                    : transportPriority === 'delayed' ? 2
+                        : 1, // minor
 
             // Case Status
             caseStatus: 'intake_completed',
