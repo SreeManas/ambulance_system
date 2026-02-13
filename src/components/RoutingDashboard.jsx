@@ -1012,7 +1012,7 @@ export default function RoutingDashboard() {
                             >
                                 {emergencyCases.map(c => (
                                     <option key={c.id} value={c.id}>
-                                        {c.emergencyContext?.emergencyType || "Emergency"} - {c.patientName || "Unknown"}
+                                        {c.emergencyContext?.emergencyType || "Emergency"} - {c.patientInfo?.name || "Unknown"}
                                     </option>
                                 ))}
                             </select>
