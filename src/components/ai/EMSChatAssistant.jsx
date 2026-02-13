@@ -275,7 +275,7 @@ export default function EMSChatAssistant() {
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                 <span style={{ fontSize: '24px' }}>🤖</span>
                                 <div>
-                                    <div style={{ fontWeight: 700, fontSize: '15px' }}>EMS AI Copilot</div>
+                                    <div style={{ fontWeight: 700, fontSize: '15px' }}>MEDROUTER AI Assistant</div>
                                     <div style={{ fontSize: '11px', opacity: 0.85 }}>
                                         {roleConfig.icon} {roleConfig.label} • {roleConfig.description}
                                     </div>
@@ -360,7 +360,7 @@ export default function EMSChatAssistant() {
                             <div style={{ textAlign: 'center', padding: '20px 10px' }}>
                                 <div style={{ fontSize: '40px', marginBottom: '12px' }}>🤖</div>
                                 <div style={{ color: '#e2e8f0', fontWeight: 600, fontSize: '15px', marginBottom: '4px' }}>
-                                    EMS AI Copilot
+                                    MEDROUTER AI Assistant
                                 </div>
                                 <div style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '20px' }}>
                                     Powered by Gemini 2.5 Flash • {roleConfig.label} Mode
