@@ -710,16 +710,35 @@ function calculateFreshnessPenalty(hospital) {
 
 function getWeightProfile(acuityLevel, goldenHourModifier = 0) {
     let base;
-    if (acuityLevel === null || acuityLevel === undefined) base = { ...WEIGHT_PROFILES.moderate };
-    else if (acuityLevel >= 4) base = { ...WEIGHT_PROFILES.critical };
-    else if (acuityLevel <= 2) base = { ...WEIGHT_PROFILES.minor };
-    else base = { ...WEIGHT_PROFILES.moderate };
+
+    // AI Triage acuity scale: 1=Immediate, 2=Critical, 3=Urgent, 4=Delayed, 5=Minor
+    // CRITICAL: Low acuity number = MORE severe — use capability-heavy profile
+    if (acuityLevel === null || acuityLevel === undefined) {
+        base = { ...WEIGHT_PROFILES.moderate };
+    } else if (acuityLevel <= 2) {
+        // Level 1 (Immediate) or 2 (Critical) — life-threatening
+        // Prioritize capability, ICU availability, equipment — distance is secondary
+        base = { ...WEIGHT_PROFILES.critical };
+    } else if (acuityLevel === 3) {
+        // Level 3 (Urgent) — moderate severity
+        base = { ...WEIGHT_PROFILES.moderate };
+    } else {
+        // Level 4 (Delayed) or 5 (Minor) — stable, prioritize proximity
+        base = { ...WEIGHT_PROFILES.minor };
+    }
 
     // Apply golden hour modifier to distance weight
     if (goldenHourModifier > 0) {
-        base.distance += goldenHourModifier;
-        base.capability -= goldenHourModifier / 2;
-        base.beds -= goldenHourModifier / 2;
+        if (acuityLevel !== null && acuityLevel <= 2) {
+            // For critical acuity: doubled golden hour boost — ETA matters even more
+            base.distance += goldenHourModifier * 2;
+            base.capability -= goldenHourModifier;
+            base.beds -= goldenHourModifier;
+        } else {
+            base.distance += goldenHourModifier;
+            base.capability -= goldenHourModifier / 2;
+            base.beds -= goldenHourModifier / 2;
+        }
     }
 
     return base;

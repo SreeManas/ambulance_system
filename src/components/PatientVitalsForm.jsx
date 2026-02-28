@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import offlineSync from '../utils/offlineSync.js';
 import { getFirestore, addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -6,6 +6,8 @@ import { getAuth } from 'firebase/auth';
 import { useT } from '../hooks/useT.js';
 import CameraCapture from './CameraCapture.jsx';
 import { Camera, X, Image as ImageIcon } from 'lucide-react';
+import TriagePanel from './ai/TriagePanel.jsx';
+import { buildTriagePayload, runAITriage, logTriageToFirestore } from '../services/triageService.js';
 
 // Translation keys
 const TRANSLATIONS = {
@@ -123,6 +125,11 @@ export default function PatientVitalsForm() {
     const [showCamera, setShowCamera] = useState(false);
     const [capturedPhotos, setCapturedPhotos] = useState([]); // Array of { blob, preview, file }
     const [uploadingPhotos, setUploadingPhotos] = useState(false);
+
+    // AI Triage Engine State
+    const [triageResult, setTriageResult] = useState(null);
+    const [triageLoading, setTriageLoading] = useState(false);
+    const [triageError, setTriageError] = useState(null);
 
     // Translation hooks
     const tPatientIntake = useT(TRANSLATIONS.patientIntake);
@@ -376,11 +383,24 @@ export default function PatientVitalsForm() {
             createdAt: serverTimestamp(),
             userId: user.uid,
 
-            // Acuity Level - derived from transport priority until AI triage is implemented
-            acuityLevel: transportPriority === 'immediate' ? 5
-                : transportPriority === 'urgent' ? 3
-                    : transportPriority === 'delayed' ? 2
-                        : 1, // minor
+            // Acuity Level — AI triage result takes precedence; transport priority is fallback
+            acuityLevel: (triageResult && !triageResult.error && triageResult.acuity_level)
+                ? triageResult.acuity_level
+                : transportPriority === 'immediate' ? 5
+                    : transportPriority === 'urgent' ? 3
+                        : transportPriority === 'delayed' ? 2
+                            : 1, // minor
+
+            // AI Triage metadata (stored for routing engine and audit use)
+            aiTriage: (triageResult && !triageResult.error) ? {
+                acuityLevel: triageResult.acuity_level,
+                severityLabel: triageResult.severity_label,
+                confidence: triageResult.confidence,
+                clinicalFlags: triageResult.clinical_flags,
+                reasoningSummary: triageResult.reasoning_summary,
+                source: triageResult.source,
+                ranAt: new Date().toISOString(),
+            } : null,
 
             // Case Status
             caseStatus: 'intake_completed',
@@ -490,7 +510,41 @@ export default function PatientVitalsForm() {
         setIsolationRequired(false);
         setParamedicNotes('');
         setValidationErrors({});
+        setTriageResult(null);
+        setTriageError(null);
+        setTriageLoading(false);
     };
+
+    // ── AI Triage handler ──────────────────────────────────────────────────
+    const handleRunTriage = useCallback(async () => {
+        setTriageLoading(true);
+        setTriageError(null);
+        try {
+            const payload = buildTriagePayload({
+                heartRate, spo2, respiratoryRate, bloodPressure,
+                temperature, temperatureUnit, consciousnessLevel,
+                breathingStatus, bleedingSeverity, injuryType,
+                burnsPercentage, cprPerformed, chestPainPresent,
+                headInjurySuspected, seizureActivity, emergencyType,
+                gender, age
+            });
+            const result = await runAITriage(payload);
+            setTriageResult(result);
+            // Log to Firestore (non-blocking)
+            logTriageToFirestore({ triageResult: result, vitalsPayload: payload, caseId: null });
+        } catch (err) {
+            setTriageError(`AI Triage failed: ${err.message}. Using transport priority as fallback.`);
+        } finally {
+            setTriageLoading(false);
+        }
+    }, [
+        heartRate, spo2, respiratoryRate, bloodPressure,
+        temperature, temperatureUnit, consciousnessLevel,
+        breathingStatus, bleedingSeverity, injuryType,
+        burnsPercentage, cprPerformed, chestPainPresent,
+        headInjurySuspected, seizureActivity, emergencyType,
+        gender, age
+    ]);
 
     return (
         <div className="card p-6 shadow-lg max-w-4xl mx-auto">
@@ -1048,6 +1102,14 @@ export default function PatientVitalsForm() {
                         </div>
                     </div>
                 </div>
+
+                {/* AI Triage Engine */}
+                <TriagePanel
+                    triageResult={triageResult}
+                    isLoading={triageLoading}
+                    onRunTriage={handleRunTriage}
+                    error={triageError}
+                />
 
                 {/* Camera Modal */}
                 {showCamera && (
