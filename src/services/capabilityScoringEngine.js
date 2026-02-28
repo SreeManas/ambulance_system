@@ -419,7 +419,7 @@ function calculateDistanceScore(distanceKm) {
 // GOLDEN HOUR MODIFIER
 // =============================================================================
 
-function calculateGoldenHourModifier(emergencyCase) {
+function calculateGoldenHourModifier(emergencyCase, escalationBoost = 0) {
     const incidentTimestamp = emergencyCase.emergencyContext?.incidentTimestamp ||
         emergencyCase.incidentTimestamp;
 
@@ -437,11 +437,12 @@ function calculateGoldenHourModifier(emergencyCase) {
     const minutesSinceIncident = (Date.now() - timestamp) / (1000 * 60);
 
     if (minutesSinceIncident <= 60) {
-        // Within golden hour: boost distance weight by 10%
+        // Within golden hour: base 10% + escalation amplification
         return {
-            modifier: 0.10,
+            modifier: 0.10 + escalationBoost,
             inGoldenHour: true,
-            minutesRemaining: Math.round(60 - minutesSinceIncident)
+            minutesRemaining: Math.round(60 - minutesSinceIncident),
+            escalationAmplified: escalationBoost > 0,
         };
     }
 

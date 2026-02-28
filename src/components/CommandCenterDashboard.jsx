@@ -24,6 +24,11 @@ import { useMapResize } from "../hooks/useMapResize";
 import { useTPreload, useTBatch } from "../hooks/useT";
 import { PRELOAD_COMMAND_CENTER } from "../constants/translationKeys";
 import { useAuth } from "./auth/AuthProvider.jsx";
+import CaseStatusBadge from './dispatch/CaseStatusBadge.jsx';
+import EscalationOverridePanel from './dispatch/EscalationOverridePanel.jsx';
+import useEscalationMonitor from '../hooks/useEscalationMonitor.js';
+import { CASE_STATUS } from '../services/hospitalResponseEngine.js';
+import scoringEngine from '../services/capabilityScoringEngine.js';
 import DriverVerificationPanel from "./DriverVerificationPanel.jsx";
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN || "";
@@ -224,6 +229,9 @@ export default function CommandCenterDashboard() {
     const [fleetFilter, setFleetFilter] = useState('combined'); // 'system', 'driver', 'combined'
 
     const db = getFirestore();
+
+    // Escalation timeout monitor — polls every 15s
+    useEscalationMonitor(emergencyCases, true);
 
     // =============================================================================
     // INITIALIZATION
@@ -846,52 +854,77 @@ export default function CommandCenterDashboard() {
                     <div className="flex-1 overflow-y-auto p-4">
                         {/* Cases Panel */}
                         {activePanel === "cases" && (
-                            <div className="space-y-3">
-                                <h3 className="text-white font-medium mb-3">{C.emergencyQueue} ({emergencyCases.length})</h3>
+                            <>
+                                <div className="space-y-3">
+                                    <h3 className="text-white font-medium mb-3">{C.emergencyQueue} ({emergencyCases.length})</h3>
 
-                                {emergencyCases.map(ec => {
-                                    const assignedAmb = ambulances.find(a => a.assignedCaseId === ec.id);
-                                    const acuity = getAcuityBadge(ec.acuityLevel);
+                                    {emergencyCases.map(ec => {
+                                        const assignedAmb = ambulances.find(a => a.assignedCaseId === ec.id);
+                                        const acuity = getAcuityBadge(ec.acuityLevel);
 
-                                    return (
-                                        <div
-                                            key={ec.id}
-                                            onClick={() => setSelectedCase(ec)}
-                                            className={`p-3 rounded-lg border cursor-pointer transition-all ${selectedCase?.id === ec.id
-                                                ? "bg-blue-500/20 border-blue-500"
-                                                : "bg-gray-700/50 border-gray-600 hover:bg-gray-700"
-                                                }`}
-                                        >
-                                            <div className="flex items-center justify-between mb-2">
-                                                <span className="text-white font-medium text-sm truncate">
-                                                    {ec.emergencyContext?.emergencyType || "Emergency"}
-                                                </span>
-                                                <span className={`px-2 py-0.5 rounded text-xs ${acuity.bg} ${acuity.text_color}`}>
-                                                    {acuity.text}
-                                                </span>
-                                            </div>
+                                        return (
+                                            <div
+                                                key={ec.id}
+                                                onClick={() => setSelectedCase(ec)}
+                                                className={`p-3 rounded-lg border cursor-pointer transition-all ${selectedCase?.id === ec.id
+                                                    ? "bg-blue-500/20 border-blue-500"
+                                                    : "bg-gray-700/50 border-gray-600 hover:bg-gray-700"
+                                                    }`}
+                                            >
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <span className="text-white font-medium text-sm truncate">
+                                                        {ec.emergencyContext?.emergencyType || "Emergency"}
+                                                    </span>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                        <CaseStatusBadge caseData={ec} showDetails={false} />
+                                                        <span className={`px-2 py-0.5 rounded text-xs ${acuity.bg} ${acuity.text_color}`}>
+                                                            {acuity.text}
+                                                        </span>
+                                                    </div>
+                                                </div>
 
-                                            <div className="flex items-center justify-between text-xs">
-                                                <span className="text-gray-400">{ec.patientName || "Unknown"}</span>
-                                                {assignedAmb ? (
-                                                    <span className="text-green-400">{assignedAmb.vehicleNumber}</span>
-                                                ) : (
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            const availableAmb = ambulances.find(a => a.status === "available");
-                                                            if (availableAmb) dispatchAmbulance(availableAmb.id, ec);
-                                                        }}
-                                                        className="px-2 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-500"
-                                                    >
-                                                        {C.dispatch}
-                                                    </button>
+                                                {/* Status detail row */}
+                                                {(ec.status === CASE_STATUS.AWAITING_RESPONSE || ec.status === CASE_STATUS.ESCALATION_REQUIRED || ec.status === CASE_STATUS.DISPATCHER_OVERRIDE) && (
+                                                    <div style={{ marginBottom: 6 }}>
+                                                        <CaseStatusBadge caseData={ec} showDetails={true} />
+                                                    </div>
                                                 )}
+
+                                                <div className="flex items-center justify-between text-xs">
+                                                    <span className="text-gray-400">{ec.patientName || "Unknown"}</span>
+                                                    {assignedAmb ? (
+                                                        <span className="text-green-400">{assignedAmb.vehicleNumber}</span>
+                                                    ) : (
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                const availableAmb = ambulances.find(a => a.status === "available");
+                                                                if (availableAmb) dispatchAmbulance(availableAmb.id, ec);
+                                                            }}
+                                                            className="px-2 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-500"
+                                                        >
+                                                            {C.dispatch}
+                                                        </button>
+                                                    )}
+                                                </div>
                                             </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
+                                        );
+                                    })}
+                                </div>
+
+                                {/* Escalation Override Panel — shown when escalated case is selected */}
+                                {selectedCase?.status === CASE_STATUS.ESCALATION_REQUIRED && (
+                                    <div style={{ marginTop: '12px' }}>
+                                        <EscalationOverridePanel
+                                            caseData={selectedCase}
+                                            rankedHospitals={scoringEngine.rankHospitals(hospitals, selectedCase, { overrideActive: true })}
+                                            onOverrideComplete={(hospitalId) => {
+                                                setSelectedCase(prev => prev ? { ...prev, status: CASE_STATUS.DISPATCHER_OVERRIDE, overrideUsed: true, overrideHospitalId: hospitalId } : null);
+                                            }}
+                                        />
+                                    </div>
+                                )}
+                            </>
                         )}
 
                         {/* Fleet Panel */}

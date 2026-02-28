@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import IncomingCaseAlert from './hospital/IncomingCaseAlert.jsx';
 import {
     getFirestore,
     collection,
@@ -245,6 +246,9 @@ export default function HospitalDashboard() {
     const db = getFirestore();
     const auth = getAuth();
 
+    // Hospital Response Engine: incoming case notifications
+    const [incomingCases, setIncomingCases] = useState([]);
+
     // Phase: Fetch user doc to check ownership
     useEffect(() => {
         if (!currentUser) {
@@ -278,6 +282,24 @@ export default function HospitalDashboard() {
 
         fetchUserDoc();
     }, [currentUser, role, db]);
+
+    // Hospital Response Engine: listen for pending notifications for this hospital
+    useEffect(() => {
+        if (!userHospitalId) return;
+        const q = query(collection(db, 'emergencyCases'), where('status', 'in', ['awaiting_response']));
+        const unsub = onSnapshot(q, (snap) => {
+            const cases = [];
+            snap.forEach(d => {
+                const data = { id: d.id, ...d.data() };
+                const hasNotification = (data.hospitalNotifications || []).some(
+                    n => n.hospitalId === userHospitalId && n.response === null
+                );
+                if (hasNotification) cases.push(data);
+            });
+            setIncomingCases(cases);
+        });
+        return () => unsub();
+    }, [userHospitalId, db]);
 
     // Phase: GPS Location Capture
     const handleUseCurrentLocation = useCallback(() => {
@@ -711,6 +733,21 @@ export default function HospitalDashboard() {
 
     return (
         <div className="container mx-auto p-6 max-w-7xl">
+            {/* Hospital Response Engine: Incoming Case Alerts */}
+            {incomingCases.length > 0 && (
+                <div className="mb-6 space-y-4">
+                    {incomingCases.map(c => (
+                        <IncomingCaseAlert
+                            key={c.id}
+                            caseData={c}
+                            hospitalId={userHospitalId}
+                            onActionComplete={(action) => {
+                                setIncomingCases(prev => prev.filter(p => p.id !== c.id));
+                            }}
+                        />
+                    ))}
+                </div>
+            )}
             {/* Onboarding Hero Header */}
             {isOnboarding && (
                 <div className="mb-8 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-700 rounded-2xl p-8 text-white shadow-xl">
