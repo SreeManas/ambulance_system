@@ -91,6 +91,34 @@ function buildFallback(level, label, flags, confidence) {
     };
 }
 
+// ─── SAFETY DOMINANCE: AI cannot downgrade below rule-based floor ──────────
+// Called on every Gemini result. Rule-based severity is the hard floor.
+// Lower acuity_level number = MORE severe (1=Immediate, 5=Minor).
+function applySafetyDominance(geminiResult, safe) {
+    const rulesResult = runFallbackTriage(safe);
+
+    // If rule-based is MORE severe (lower number), override AI result
+    if (rulesResult.acuity_level < geminiResult.acuity_level) {
+        const overriddenFlags = [
+            ...rulesResult.clinical_flags,
+            `[Safety Override] AI returned Level ${geminiResult.acuity_level} (${geminiResult.severity_label}) — upgraded to rule-based floor`
+        ];
+        return {
+            ...geminiResult,
+            acuity_level: rulesResult.acuity_level,
+            severity_label: rulesResult.severity_label,
+            clinical_flags: overriddenFlags,
+            reasoning_summary: `Safety dominance applied: rule-based floor (${rulesResult.severity_label}) overrides AI result (${geminiResult.severity_label}). ${rulesResult.reasoning_summary}`,
+            source: 'gemini_safety_override',
+            safety_override: true,
+            ai_original_level: geminiResult.acuity_level,
+        };
+    }
+
+    // AI result is equal or more severe than rules — keep AI result
+    return { ...geminiResult, safety_override: false };
+}
+
 // ─── Validate Gemini output schema ─────────────────────────────────────────
 const VALID_LABELS = ['Immediate', 'Critical', 'Urgent', 'Delayed', 'Minor'];
 
@@ -290,9 +318,12 @@ export default async function handler(req, res) {
             throw new Error('Gemini returned invalid triage schema');
         }
 
+        // ── SAFETY DOMINANCE: Rule-based floor always wins ──────────────────
+        const dominantResult = applySafetyDominance({ ...parsed, source: 'gemini' }, safe);
+
         return res.status(200).json({
             success: true,
-            triage: { ...parsed, source: 'gemini' }
+            triage: dominantResult
         });
 
     } catch (err) {

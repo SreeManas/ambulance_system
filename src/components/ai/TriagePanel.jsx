@@ -139,13 +139,17 @@ export default function TriagePanel({ triageResult, isLoading, onRunTriage, erro
                         {/* Source pill */}
                         <span style={{
                             fontSize: '10px',
-                            background: triageResult.source === 'gemini' ? '#064e3b' : '#1c1917',
-                            color: triageResult.source === 'gemini' ? '#6ee7b7' : '#a8a29e',
+                            background: triageResult.source === 'gemini' ? '#064e3b' : triageResult.safety_override ? '#450a0a' : '#1c1917',
+                            color: triageResult.source === 'gemini' ? '#6ee7b7' : triageResult.safety_override ? '#fca5a5' : '#a8a29e',
                             padding: '2px 8px',
                             borderRadius: '999px',
                             fontWeight: 600,
                         }}>
-                            {triageResult.source === 'gemini' ? '✦ Gemini AI' : '⚙ Rule-Based Fallback'}
+                            {triageResult.safety_override
+                                ? '⚠ Safety Override Active'
+                                : triageResult.source === 'gemini'
+                                    ? '✦ Gemini AI'
+                                    : '⚙ Rule-Based Fallback'}
                         </span>
 
                         {/* Expand toggle */}
@@ -170,6 +174,25 @@ export default function TriagePanel({ triageResult, isLoading, onRunTriage, erro
                             {expanded ? 'Hide' : 'Clinical Detail'}
                         </button>
                     </div>
+
+                    {/* Safety dominance warning banner */}
+                    {triageResult.safety_override && (
+                        <div style={{
+                            margin: '0 16px 10px',
+                            padding: '8px 12px',
+                            background: '#450a0a',
+                            border: '1px solid #7f1d1d',
+                            borderRadius: '8px',
+                            display: 'flex',
+                            gap: '8px',
+                            alignItems: 'flex-start',
+                        }}>
+                            <AlertTriangle size={14} color="#f87171" style={{ flexShrink: 0, marginTop: 1 }} />
+                            <span style={{ color: '#fca5a5', fontSize: '11px', lineHeight: 1.4 }}>
+                                <strong>Safety dominance applied.</strong> AI classified Level {triageResult.ai_original_level} ({triageResult.ai_original_level >= 4 ? 'Delayed/Minor' : 'lower severity'}) but vital signs mandate a higher acuity floor. Result upgraded to <strong>Level {triageResult.acuity_level} ({config.label})</strong>.
+                            </span>
+                        </div>
+                    )}
 
                     {/* Confidence bar */}
                     <div style={{ padding: '0 16px 12px', background: '#0f172a' }}>
