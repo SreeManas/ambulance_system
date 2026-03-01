@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import IncomingCaseAlert from './hospital/IncomingCaseAlert.jsx';
 import IncomingHandoverCard from './handover/IncomingHandoverCard.jsx';
-import { useT } from '../hooks/useT.js';
-import { TK } from '../constants/translationKeys.js';
 import {
     getFirestore,
     collection,
@@ -23,7 +21,7 @@ import HospitalExtendedProfileForm, { defaultExtendedProfile } from './HospitalE
 import HospitalProfileView from './HospitalProfileView';
 import { useAuth } from './auth/AuthProvider';
 import { useTPreload, useTBatch, useT } from "../hooks/useT";
-import { PRELOAD_HOSPITAL } from "../constants/translationKeys";
+import { PRELOAD_HOSPITAL, TK } from "../constants/translationKeys";
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN || '';
 
