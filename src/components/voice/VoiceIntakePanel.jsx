@@ -1,33 +1,31 @@
 /**
  * VoiceIntakePanel.jsx — Voice-to-Intake with AI Structured Extraction
  *
- * Workflow:
- * 1. Paramedic speaks → Web Speech API captures transcript
- * 2. Transcript → /api/voice-intake → Gemini extracts structured fields
- * 3. Confirmation modal shows transcript vs extracted side-by-side
- * 4. User confirms → form fields auto-populate with glow animation
- *
- * Never auto-submits. Always requires explicit confirmation.
- * Gracefully handles unsupported browsers, permission denied, network errors.
+ * All user-facing strings are translatable via useT(TK.KEY).
+ * Workflow: speak → transcript → Gemini extraction → confirmation modal → apply
  */
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
-    Mic, MicOff, Loader2, CheckCircle, XCircle, AlertTriangle,
-    ChevronDown, Edit3, Activity
+    Mic, MicOff, Loader2, CheckCircle, XCircle, AlertTriangle, Activity
 } from 'lucide-react';
+import { useT } from '../../hooks/useT.js';
+import { TK } from '../../constants/translationKeys.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// CONFIDENCE INDICATOR
+// CONFIDENCE BAR
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function ConfidenceBar({ score }) {
+    const tConfidence = useT(TK.VI_CONFIDENCE);
+    const tLowConfidence = useT(TK.VI_LOW_CONFIDENCE);
+
     const pct = Math.round((score ?? 0) * 100);
     const color = pct >= 80 ? '#22c55e' : pct >= 60 ? '#f59e0b' : '#ef4444';
     return (
         <div style={{ marginBottom: 8 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>AI Confidence</span>
+                <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>{tConfidence}</span>
                 <span style={{ fontSize: 12, color, fontWeight: 700 }}>{pct}%</span>
             </div>
             <div style={{ background: '#1e293b', borderRadius: 6, height: 6, overflow: 'hidden' }}>
@@ -42,7 +40,7 @@ function ConfidenceBar({ score }) {
                     marginTop: 6, display: 'flex', alignItems: 'center', gap: 4,
                     color: '#fca5a5', fontSize: 11, fontWeight: 600,
                 }}>
-                    <AlertTriangle size={11} /> Low confidence — please verify carefully.
+                    <AlertTriangle size={11} /> {tLowConfidence}
                 </div>
             )}
         </div>
@@ -50,7 +48,7 @@ function ConfidenceBar({ score }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// FIELD ROW IN MODAL
+// EXTRACTED FIELD ROW
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function ExtractedField({ label, value, isMissing }) {
@@ -58,7 +56,6 @@ function ExtractedField({ label, value, isMissing }) {
     return (
         <div style={{
             display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-            padding: '5px 0', borderBottom: '1px solid #1e293b',
             background: isMissing ? '#422006' : 'transparent',
             padding: '6px 8px', borderRadius: 4, margin: '2px 0',
         }}>
@@ -74,10 +71,10 @@ function ExtractedField({ label, value, isMissing }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// CONFIRMATION MODAL
+// FIELD LABELS (translated inline)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const FIELD_LABELS = {
+const RAW_FIELD_LABELS = {
     patientName: 'Patient Name',
     age: 'Age',
     gender: 'Gender',
@@ -94,7 +91,19 @@ const FIELD_LABELS = {
     locationDescription: 'Location',
 };
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// CONFIRMATION MODAL
+// ═══════════════════════════════════════════════════════════════════════════════
+
 function ConfirmationModal({ transcript, parsedData, onApply, onCancel }) {
+    const tTitle = useT(TK.VI_CONFIRM_TITLE);
+    const tTranscript = useT(TK.VI_ORIGINAL_TRANSCRIPT);
+    const tExtracted = useT(TK.VI_EXTRACTED_FIELDS);
+    const tNoFields = useT(TK.VI_NO_FIELDS);
+    const tMissingCritical = useT(TK.VI_MISSING_CRITICAL);
+    const tApply = useT(TK.VI_APPLY);
+    const tCancel = useT(TK.VI_CANCEL);
+
     const { extractedData, confidenceScore, missingCriticalFields } = parsedData;
     const missingSet = new Set(missingCriticalFields || []);
     const entries = Object.entries(extractedData).filter(([, v]) => v !== null && v !== undefined);
@@ -110,39 +119,35 @@ function ConfirmationModal({ transcript, parsedData, onApply, onCancel }) {
                 border: '1px solid #334155', boxShadow: '0 25px 60px rgba(0,0,0,0.5)',
                 maxHeight: '90vh', display: 'flex', flexDirection: 'column',
             }}>
-                {/* Modal header */}
+                {/* Header */}
                 <div style={{
                     padding: '16px 20px', borderBottom: '1px solid #1e293b',
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <Activity size={18} color="#3b82f6" />
-                        <span style={{ color: '#f1f5f9', fontSize: 16, fontWeight: 800 }}>
-                            Confirm AI-Extracted Data
-                        </span>
+                        <span style={{ color: '#f1f5f9', fontSize: 16, fontWeight: 800 }}>{tTitle}</span>
                     </div>
                     <button onClick={onCancel} id="btn-voice-cancel-modal" style={{
-                        background: 'none', border: 'none', color: '#64748b',
-                        cursor: 'pointer', padding: 4,
+                        background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: 4,
                     }}>
                         <XCircle size={20} />
                     </button>
                 </div>
 
-                {/* Confidence bar */}
+                {/* Confidence */}
                 <div style={{ padding: '12px 20px 0' }}>
                     <ConfidenceBar score={confidenceScore} />
                 </div>
 
-                {/* Side-by-side content */}
+                {/* Side-by-side */}
                 <div style={{
                     display: 'grid', gridTemplateColumns: '1fr 1fr',
                     gap: 16, padding: '12px 20px', overflowY: 'auto', flex: 1,
                 }}>
-                    {/* Left: transcript */}
                     <div>
                         <div style={{ color: '#64748b', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', marginBottom: 8 }}>
-                            Original Transcript
+                            {tTranscript}
                         </div>
                         <div style={{
                             background: '#1e293b', borderRadius: 8, padding: '10px 12px',
@@ -153,19 +158,18 @@ function ConfirmationModal({ transcript, parsedData, onApply, onCancel }) {
                         </div>
                     </div>
 
-                    {/* Right: parsed fields */}
                     <div>
                         <div style={{ color: '#64748b', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', marginBottom: 8 }}>
-                            Extracted Fields
+                            {tExtracted}
                         </div>
                         <div style={{ maxHeight: 300, overflowY: 'auto' }}>
                             {entries.length === 0 ? (
-                                <div style={{ color: '#64748b', fontSize: 12, padding: 8 }}>No fields extracted.</div>
+                                <div style={{ color: '#64748b', fontSize: 12, padding: 8 }}>{tNoFields}</div>
                             ) : (
                                 entries.map(([key, val]) => (
                                     <ExtractedField
                                         key={key}
-                                        label={FIELD_LABELS[key] || key}
+                                        label={RAW_FIELD_LABELS[key] || key}
                                         value={val}
                                         isMissing={missingSet.has(key)}
                                     />
@@ -178,36 +182,31 @@ function ConfirmationModal({ transcript, parsedData, onApply, onCancel }) {
                                 background: '#422006', borderRadius: 6,
                                 color: '#fcd34d', fontSize: 11, fontWeight: 600,
                             }}>
-                                ⚠ Missing critical: {missingCriticalFields.join(', ')}
+                                ⚠ {tMissingCritical} {missingCriticalFields.join(', ')}
                             </div>
                         )}
                     </div>
                 </div>
 
-                {/* Action buttons */}
+                {/* Actions */}
                 <div style={{
                     padding: '12px 20px', borderTop: '1px solid #1e293b',
                     display: 'flex', gap: 8, justifyContent: 'flex-end',
                 }}>
                     <button onClick={onCancel} id="btn-voice-modal-cancel" style={{
                         padding: '8px 16px', background: '#1e293b', color: '#94a3b8',
-                        border: '1px solid #334155', borderRadius: 8, fontSize: 13,
-                        fontWeight: 600, cursor: 'pointer',
+                        border: '1px solid #334155', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
                     }}>
-                        Cancel
+                        {tCancel}
                     </button>
-                    <button
-                        onClick={() => onApply(extractedData)}
-                        id="btn-voice-apply"
-                        style={{
-                            padding: '8px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700,
-                            cursor: 'pointer', border: 'none',
-                            background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
-                            color: 'white', boxShadow: '0 4px 12px rgba(59,130,246,0.3)',
-                        }}
-                    >
+                    <button onClick={() => onApply(extractedData)} id="btn-voice-apply" style={{
+                        padding: '8px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+                        cursor: 'pointer', border: 'none',
+                        background: 'linear-gradient(135deg, #3b82f6, #2563eb)', color: 'white',
+                        boxShadow: '0 4px 12px rgba(59,130,246,0.3)',
+                    }}>
                         <CheckCircle size={14} style={{ display: 'inline', marginRight: 6, verticalAlign: 'middle' }} />
-                        Apply to Form
+                        {tApply}
                     </button>
                 </div>
             </div>
@@ -230,18 +229,38 @@ export default function VoiceIntakePanel({ onApplyData }) {
     const [showModal, setShowModal] = useState(false);
 
     const recognitionRef = useRef(null);
-    const isRecordingRef = useRef(false); // guard against concurrent recordings
+    const isRecordingRef = useRef(false);
     const abortRef = useRef(null);
 
-    // Check support on mount
+    // Translate all UI labels
+    const tModeLabel = useT(TK.VI_MODE_LABEL);
+    const tOptional = useT(TK.VI_OPTIONAL);
+    const tRecordingLabel = useT(TK.VI_RECORDING);
+    const tStart = useT(TK.VI_START);
+    const tStop = useT(TK.VI_STOP);
+    const tExtract = useT(TK.VI_EXTRACT);
+    const tExtracting = useT(TK.VI_EXTRACTING);
+    const tUnsupported = useT(TK.VI_UNSUPPORTED);
+    const tPermDenied = useT(TK.VI_PERMISSION_DENIED);
+    const tNoSpeech = useT(TK.VI_NO_SPEECH);
+    const tTooShort = useT(TK.VI_TOO_SHORT);
+    const tTooLong = useT(TK.VI_TOO_LONG);
+    const tTimeout = useT(TK.VI_TIMEOUT);
+    const tStartErr = useT(TK.VI_START_ERROR);
+
     useEffect(() => {
         const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SR) setSupported(false);
     }, []);
 
-    const startRecording = useCallback(() => {
-        if (isRecordingRef.current) return; // safety guard
+    const stopRecordingCleanup = useCallback(() => {
+        setIsRecording(false);
+        setInterimText('');
+        isRecordingRef.current = false;
+    }, []);
 
+    const startRecording = useCallback(() => {
+        if (isRecordingRef.current) return;
         const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SR) { setSupported(false); return; }
 
@@ -257,14 +276,10 @@ export default function VoiceIntakePanel({ onApplyData }) {
         recognition.maxAlternatives = 1;
         recognitionRef.current = recognition;
 
-        recognition.onstart = () => {
-            setIsRecording(true);
-            isRecordingRef.current = true;
-        };
+        recognition.onstart = () => { setIsRecording(true); isRecordingRef.current = true; };
 
         recognition.onresult = (event) => {
-            let interim = '';
-            let final = '';
+            let interim = '', final = '';
             for (let i = event.resultIndex; i < event.results.length; i++) {
                 const text = event.results[i][0].transcript;
                 if (event.results[i].isFinal) final += text + ' ';
@@ -275,33 +290,21 @@ export default function VoiceIntakePanel({ onApplyData }) {
         };
 
         recognition.onerror = (event) => {
-            if (event.error === 'not-allowed' || event.error === 'permission-denied') {
-                setError('Microphone permission denied. Please allow microphone access.');
-            } else if (event.error === 'no-speech') {
-                setError('No speech detected. Please speak clearly and try again.');
-            } else {
-                setError(`Speech recognition error: ${event.error}`);
-            }
+            if (event.error === 'not-allowed' || event.error === 'permission-denied') setError(tPermDenied);
+            else if (event.error === 'no-speech') setError(tNoSpeech);
+            else setError(`Speech recognition error: ${event.error}`);
             stopRecordingCleanup();
         };
 
-        recognition.onend = () => {
-            stopRecordingCleanup();
-        };
+        recognition.onend = () => stopRecordingCleanup();
 
         try {
             recognition.start();
-        } catch (err) {
-            setError('Failed to start speech recognition.');
+        } catch {
+            setError(tStartErr);
             stopRecordingCleanup();
         }
-    }, []);
-
-    const stopRecordingCleanup = useCallback(() => {
-        setIsRecording(false);
-        setInterimText('');
-        isRecordingRef.current = false;
-    }, []);
+    }, [tPermDenied, tNoSpeech, tStartErr, stopRecordingCleanup]);
 
     const stopRecording = useCallback(() => {
         recognitionRef.current?.stop();
@@ -309,19 +312,12 @@ export default function VoiceIntakePanel({ onApplyData }) {
     }, [stopRecordingCleanup]);
 
     const processWithAI = useCallback(async (text) => {
-        if (isProcessing) return; // guard against concurrent calls
-        if (!text || text.trim().length < 5) {
-            setError('Transcript too short. Please speak more clearly.');
-            return;
-        }
-        if (text.length > 2000) {
-            setError('Transcript too long (max 2000 characters).');
-            return;
-        }
+        if (isProcessing) return;
+        if (!text || text.trim().length < 5) { setError(tTooShort); return; }
+        if (text.length > 2000) { setError(tTooLong); return; }
 
         setIsProcessing(true);
         setError(null);
-
         const controller = new AbortController();
         abortRef.current = controller;
         const timeout = setTimeout(() => controller.abort(), 10_000);
@@ -334,26 +330,18 @@ export default function VoiceIntakePanel({ onApplyData }) {
                 signal: controller.signal,
             });
             clearTimeout(timeout);
-
             const data = await res.json();
-            if (!res.ok || !data.success) {
-                throw new Error(data.error || 'AI extraction failed');
-            }
-
+            if (!res.ok || !data.success) throw new Error(data.error || 'AI extraction failed');
             setParsedData(data);
             setShowModal(true);
         } catch (err) {
             clearTimeout(timeout);
-            if (err.name === 'AbortError') {
-                setError('AI request timed out after 10 seconds. Please try again.');
-            } else {
-                setError(err.message || 'Failed to process transcript with AI.');
-            }
+            setError(err.name === 'AbortError' ? tTimeout : (err.message || 'AI extraction failed'));
         } finally {
             setIsProcessing(false);
             abortRef.current = null;
         }
-    }, [isProcessing]);
+    }, [isProcessing, tTooShort, tTooLong, tTimeout]);
 
     const handleApply = useCallback((extractedData) => {
         setShowModal(false);
@@ -365,7 +353,6 @@ export default function VoiceIntakePanel({ onApplyData }) {
         setParsedData(null);
     }, []);
 
-    // Unsupported browser
     if (!supported) {
         return (
             <div style={{
@@ -374,7 +361,7 @@ export default function VoiceIntakePanel({ onApplyData }) {
                 display: 'flex', alignItems: 'center', gap: 8, color: '#94a3b8', fontSize: 13,
             }}>
                 <MicOff size={14} />
-                Voice input not supported. Please type manually.
+                {tUnsupported}
             </div>
         );
     }
@@ -386,15 +373,14 @@ export default function VoiceIntakePanel({ onApplyData }) {
                 borderRadius: 14, border: '1px solid #334155',
                 padding: '16px 18px', marginBottom: 24,
             }}>
-                {/* Header */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <Mic size={16} color="#3b82f6" />
-                        <span style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 700 }}>Voice Intake Mode</span>
+                        <span style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 700 }}>{tModeLabel}</span>
                         <span style={{
                             background: '#1e293b', color: '#64748b', fontSize: 9, fontWeight: 700,
                             padding: '2px 6px', borderRadius: 4, letterSpacing: '0.06em',
-                        }}>OPTIONAL</span>
+                        }}>{tOptional}</span>
                     </div>
                     {isRecording && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -402,92 +388,74 @@ export default function VoiceIntakePanel({ onApplyData }) {
                                 width: 8, height: 8, borderRadius: '50%', background: '#ef4444',
                                 animation: 'voicePulse 1s ease-in-out infinite',
                             }} />
-                            <span style={{ color: '#ef4444', fontSize: 11, fontWeight: 700 }}>RECORDING</span>
+                            <span style={{ color: '#ef4444', fontSize: 11, fontWeight: 700 }}>{tRecordingLabel}</span>
                         </div>
                     )}
                 </div>
 
-                {/* Record button area */}
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                     {!isRecording ? (
-                        <button
-                            type="button"
-                            onClick={startRecording}
-                            disabled={isProcessing}
-                            id="btn-voice-start"
+                        <button type="button" onClick={startRecording} disabled={isProcessing} id="btn-voice-start"
                             style={{
                                 display: 'flex', alignItems: 'center', gap: 6,
-                                padding: '8px 16px', background: isProcessing ? '#1e293b' : 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                                padding: '8px 16px',
+                                background: isProcessing ? '#1e293b' : 'linear-gradient(135deg, #3b82f6, #2563eb)',
                                 color: isProcessing ? '#64748b' : 'white', border: 'none',
-                                borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: isProcessing ? 'not-allowed' : 'pointer',
+                                borderRadius: 8, fontSize: 13, fontWeight: 700,
+                                cursor: isProcessing ? 'not-allowed' : 'pointer',
                                 boxShadow: isProcessing ? 'none' : '0 4px 12px rgba(59,130,246,0.3)',
-                            }}
-                        >
-                            <Mic size={14} />
-                            🎤 Start Voice Intake
+                            }}>
+                            <Mic size={14} /> 🎤 {tStart}
                         </button>
                     ) : (
-                        <button
-                            type="button"
-                            onClick={stopRecording}
-                            id="btn-voice-stop"
+                        <button type="button" onClick={stopRecording} id="btn-voice-stop"
                             style={{
                                 display: 'flex', alignItems: 'center', gap: 6,
-                                padding: '8px 16px', background: 'linear-gradient(135deg, #dc2626, #b91c1c)',
+                                padding: '8px 16px',
+                                background: 'linear-gradient(135deg, #dc2626, #b91c1c)',
                                 color: 'white', border: 'none', borderRadius: 8,
                                 fontSize: 13, fontWeight: 700, cursor: 'pointer',
                                 boxShadow: '0 4px 12px rgba(220,38,38,0.3)',
                                 animation: 'voicePulseBorder 1.5s ease-in-out infinite',
-                            }}
-                        >
-                            <MicOff size={14} />
-                            Stop Recording
+                            }}>
+                            <MicOff size={14} /> {tStop}
                         </button>
                     )}
 
                     {transcript && !isRecording && !isProcessing && (
-                        <button
-                            type="button"
-                            onClick={() => processWithAI(transcript)}
-                            id="btn-voice-process"
+                        <button type="button" onClick={() => processWithAI(transcript)} id="btn-voice-process"
                             style={{
                                 display: 'flex', alignItems: 'center', gap: 6,
-                                padding: '8px 16px', background: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
+                                padding: '8px 16px',
+                                background: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
                                 color: 'white', border: 'none', borderRadius: 8,
                                 fontSize: 13, fontWeight: 700, cursor: 'pointer',
                                 boxShadow: '0 4px 12px rgba(124,58,237,0.3)',
-                            }}
-                        >
-                            <Activity size={14} />
-                            Extract with AI
+                            }}>
+                            <Activity size={14} /> {tExtract}
                         </button>
                     )}
 
                     {isProcessing && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#94a3b8', fontSize: 13 }}>
                             <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
-                            Extracting clinical data...
+                            {tExtracting}
                         </div>
                     )}
                 </div>
 
-                {/* Interim / transcript preview */}
                 {(transcript || interimText) && (
                     <div style={{
                         marginTop: 10, background: '#0f172a', borderRadius: 8,
-                        padding: '8px 12px', border: '1px solid #334155',
-                        maxHeight: 80, overflowY: 'auto',
+                        padding: '8px 12px', border: '1px solid #334155', maxHeight: 80, overflowY: 'auto',
                     }}>
                         <div style={{ color: '#cbd5e1', fontSize: 12, lineHeight: 1.6 }}>
                             {transcript}
-                            {interimText && (
-                                <span style={{ color: '#475569', fontStyle: 'italic' }}>{interimText}</span>
-                            )}
+                            {interimText && <span style={{ color: '#475569', fontStyle: 'italic' }}>{interimText}</span>}
                         </div>
                     </div>
                 )}
 
-                {/* Error */}
                 {error && (
                     <div style={{
                         marginTop: 8, display: 'flex', alignItems: 'center', gap: 6,
@@ -499,7 +467,6 @@ export default function VoiceIntakePanel({ onApplyData }) {
                 )}
             </div>
 
-            {/* Confirmation Modal */}
             {showModal && parsedData && (
                 <ConfirmationModal
                     transcript={transcript}
@@ -510,23 +477,15 @@ export default function VoiceIntakePanel({ onApplyData }) {
             )}
 
             <style>{`
-                @keyframes voicePulse {
-                    0%, 100% { opacity: 1; transform: scale(1); }
-                    50% { opacity: 0.5; transform: scale(1.4); }
-                }
-                @keyframes voicePulseBorder {
-                    0%, 100% { box-shadow: 0 4px 12px rgba(220,38,38,0.3); }
-                    50% { box-shadow: 0 4px 20px rgba(220,38,38,0.6); }
-                }
+                @keyframes voicePulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.4); } }
+                @keyframes voicePulseBorder { 0%, 100% { box-shadow: 0 4px 12px rgba(220,38,38,0.3); } 50% { box-shadow: 0 4px 20px rgba(220,38,38,0.6); } }
                 @keyframes spin { 100% { transform: rotate(360deg); } }
                 @keyframes voiceFieldGlow {
                     0% { box-shadow: 0 0 0 0 rgba(59,130,246,0); background: transparent; }
                     30% { box-shadow: 0 0 0 4px rgba(59,130,246,0.3); background: rgba(59,130,246,0.08); }
                     100% { box-shadow: 0 0 0 0 rgba(59,130,246,0); background: transparent; }
                 }
-                .voice-filled {
-                    animation: voiceFieldGlow 1.2s ease-out forwards;
-                }
+                .voice-filled { animation: voiceFieldGlow 1.2s ease-out forwards; }
             `}</style>
         </>
     );

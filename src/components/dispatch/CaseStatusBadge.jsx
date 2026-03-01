@@ -1,13 +1,6 @@
 /**
  * CaseStatusBadge.jsx — Case status visual indicator for Command Center
- *
- * Displays:
- *  - Awaiting Response (yellow)
- *  - Escalation Required (red pulse)
- *  - Override Active (orange)
- *  - Accepted (green)
- *  - Rejection count
- *  - Countdown timer
+ * All user-facing labels now use useTBatch for full i18n compliance.
  */
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -16,30 +9,81 @@ import {
     getTimeoutRemaining,
     getEscalationThreshold,
 } from '../../services/hospitalResponseEngine.js';
-import { Clock, AlertTriangle, Shield, Check, Loader2 } from 'lucide-react';
+import { Clock, AlertTriangle, Shield, Check } from 'lucide-react';
+import { useTBatch } from '../../hooks/useT.js';
+import { TK } from '../../constants/translationKeys.js';
 
-const STATUS_CONFIG = {
-    [CASE_STATUS.CREATED]: { label: 'Created', color: '#64748b', bg: '#1e293b', icon: null },
-    [CASE_STATUS.TRIAGED]: { label: 'Triaged', color: '#818cf8', bg: '#1e1b4b', icon: null },
-    [CASE_STATUS.DISPATCHED]: { label: 'Dispatched', color: '#38bdf8', bg: '#0c4a6e', icon: null },
-    [CASE_STATUS.AWAITING_RESPONSE]: { label: 'Awaiting Response', color: '#fbbf24', bg: '#422006', icon: Clock },
-    [CASE_STATUS.ACCEPTED]: { label: 'Accepted', color: '#4ade80', bg: '#052e16', icon: Check },
-    [CASE_STATUS.REJECTED]: { label: 'Rejected', color: '#f87171', bg: '#450a0a', icon: null },
-    [CASE_STATUS.ESCALATION_REQUIRED]: { label: 'Escalation Required', color: '#ef4444', bg: '#450a0a', icon: AlertTriangle },
-    [CASE_STATUS.DISPATCHER_OVERRIDE]: { label: 'Override Active', color: '#fb923c', bg: '#431407', icon: Shield },
-    [CASE_STATUS.ENROUTE]: { label: 'En Route', color: '#38bdf8', bg: '#0c4a6e', icon: null },
-    [CASE_STATUS.HANDOVER_INITIATED]: { label: 'Handover Initiated', color: '#a78bfa', bg: '#2e1065', icon: null },
-    [CASE_STATUS.HANDOVER_ACKNOWLEDGED]: { label: 'Handover Received', color: '#2dd4bf', bg: '#042f2e', icon: Check },
-    [CASE_STATUS.COMPLETED]: { label: 'Completed', color: '#4ade80', bg: '#052e16', icon: Check },
+// Static visual config (colors/icons — language-independent)
+const STATUS_VISUAL = {
+    [CASE_STATUS.CREATED]: { color: '#64748b', bg: '#1e293b', icon: null },
+    [CASE_STATUS.TRIAGED]: { color: '#818cf8', bg: '#1e1b4b', icon: null },
+    [CASE_STATUS.DISPATCHED]: { color: '#38bdf8', bg: '#0c4a6e', icon: null },
+    [CASE_STATUS.AWAITING_RESPONSE]: { color: '#fbbf24', bg: '#422006', icon: Clock },
+    [CASE_STATUS.ACCEPTED]: { color: '#4ade80', bg: '#052e16', icon: Check },
+    [CASE_STATUS.REJECTED]: { color: '#f87171', bg: '#450a0a', icon: null },
+    [CASE_STATUS.ESCALATION_REQUIRED]: { color: '#ef4444', bg: '#450a0a', icon: AlertTriangle },
+    [CASE_STATUS.DISPATCHER_OVERRIDE]: { color: '#fb923c', bg: '#431407', icon: Shield },
+    [CASE_STATUS.ENROUTE]: { color: '#38bdf8', bg: '#0c4a6e', icon: null },
+    [CASE_STATUS.HANDOVER_INITIATED]: { color: '#a78bfa', bg: '#2e1065', icon: null },
+    [CASE_STATUS.HANDOVER_ACKNOWLEDGED]: { color: '#2dd4bf', bg: '#042f2e', icon: Check },
+    [CASE_STATUS.COMPLETED]: { color: '#4ade80', bg: '#052e16', icon: Check },
 };
+
+// English label strings indexed by status (same order as STATUS_VISUAL)
+const STATUS_LABEL_KEYS = [
+    TK.STATUS_PENDING,         // created
+    'Triaged',                 // triaged (no existing TK — use raw string)
+    'Dispatched',              // dispatched
+    'Awaiting Response',       // awaiting_response
+    TK.HO_ACCEPTED,            // accepted
+    'Rejected',                // rejected
+    'Escalation Required',     // escalation_required
+    'Override Active',         // dispatcher_override
+    TK.CC_ENROUTE,             // enroute
+    TK.HO_BADGE_INITIATED,     // handover_initiated
+    TK.HO_BADGE_ACKNOWLEDGED,  // handover_acknowledged
+    TK.STATUS_COMPLETED,       // completed
+];
+
+// Map index → CASE_STATUS key (same order)
+const STATUS_ORDER = [
+    CASE_STATUS.CREATED, CASE_STATUS.TRIAGED, CASE_STATUS.DISPATCHED,
+    CASE_STATUS.AWAITING_RESPONSE, CASE_STATUS.ACCEPTED, CASE_STATUS.REJECTED,
+    CASE_STATUS.ESCALATION_REQUIRED, CASE_STATUS.DISPATCHER_OVERRIDE,
+    CASE_STATUS.ENROUTE, CASE_STATUS.HANDOVER_INITIATED,
+    CASE_STATUS.HANDOVER_ACKNOWLEDGED, CASE_STATUS.COMPLETED,
+];
 
 export default function CaseStatusBadge({ caseData, showDetails = false }) {
     const [countdown, setCountdown] = useState(null);
     const timerRef = useRef(null);
 
+    // Batch-translate all status labels at once (efficient single API call)
+    const { translated: labelArray } = useTBatch(STATUS_LABEL_KEYS);
+
+    // Build translated label map
+    const labelMap = {};
+    STATUS_ORDER.forEach((statusKey, i) => {
+        labelMap[statusKey] = labelArray?.[i] || STATUS_LABEL_KEYS[i];
+    });
+
+    // Translated detail strings
+    const { translated: detailLabels } = useTBatch([
+        TK.ESC_REJECTIONS_OF,   // 0 — "rejections"
+        TK.ESC_OVERRIDE,        // 1 — "Override"
+        TK.ESC_HANDOVER_PENDING,   // 2 — "Handover Pending"
+        TK.ESC_HANDOVER_RECEIVED,  // 3 — "Handover Received"
+    ]);
+
+    const tRejections = detailLabels?.[0] || 'rejections';
+    const tOverride = detailLabels?.[1] || 'Override';
+    const tHOPending = detailLabels?.[2] || 'Handover Pending';
+    const tHOReceived = detailLabels?.[3] || 'Handover Received';
+
     const status = caseData?.status || 'created';
-    const config = STATUS_CONFIG[status] || STATUS_CONFIG[CASE_STATUS.CREATED];
-    const StatusIcon = config.icon;
+    const visual = STATUS_VISUAL[status] || STATUS_VISUAL[CASE_STATUS.CREATED];
+    const label = labelMap[status] || status;
+    const StatusIcon = visual.icon;
 
     // Countdown for awaiting_response
     useEffect(() => {
@@ -62,68 +106,53 @@ export default function CaseStatusBadge({ caseData, showDetails = false }) {
         <div style={{ display: 'inline-flex', flexDirection: 'column', gap: '4px' }}>
             {/* Status pill */}
             <div style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '5px',
-                background: config.bg,
-                border: `1px solid ${config.color}44`,
-                borderRadius: '999px',
-                padding: '3px 10px',
+                display: 'inline-flex', alignItems: 'center', gap: '5px',
+                background: visual.bg, border: `1px solid ${visual.color}44`,
+                borderRadius: '999px', padding: '3px 10px',
                 animation: isUrgent ? 'statusPulse 1.2s ease-in-out infinite' : 'none',
             }}>
-                {StatusIcon && <StatusIcon size={12} color={config.color} />}
-                <span style={{
-                    color: config.color,
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    letterSpacing: '0.04em',
-                }}>
-                    {config.label}
+                {StatusIcon && <StatusIcon size={12} color={visual.color} />}
+                <span style={{ color: visual.color, fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em' }}>
+                    {label}
                 </span>
             </div>
 
-            {/* Detail row (countdown, rejection count) */}
+            {/* Detail row */}
             {showDetails && (
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    {/* Rejection count */}
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                     {rejections > 0 && (
                         <span style={{
                             fontSize: '10px',
                             color: rejections >= thresholds.maxRejections ? '#f87171' : '#94a3b8',
                             fontWeight: 600,
                         }}>
-                            {rejections}/{thresholds.maxRejections} rejections
+                            {rejections}/{thresholds.maxRejections} {tRejections}
                         </span>
                     )}
 
-                    {/* Countdown */}
                     {countdown !== null && countdown >= 0 && (
                         <span style={{
-                            fontSize: '10px',
-                            fontFamily: 'monospace',
-                            fontWeight: 700,
+                            fontSize: '10px', fontFamily: 'monospace', fontWeight: 700,
                             color: countdown <= 15 ? '#ef4444' : '#fbbf24',
                         }}>
                             ⏱ {Math.floor(countdown / 60)}:{(countdown % 60).toString().padStart(2, '0')}
                         </span>
                     )}
 
-                    {/* Override indicator */}
                     {caseData?.overrideUsed && (
                         <span style={{ fontSize: '10px', color: '#fb923c', fontWeight: 600 }}>
-                            ⚠ Override
+                            ⚠ {tOverride}
                         </span>
                     )}
 
-                    {/* Handover indicator */}
                     {caseData?.handoverStatus === 'initiated' && (
                         <span style={{ fontSize: '10px', color: '#a78bfa', fontWeight: 600 }}>
-                            🟣 Handover Pending
+                            🟣 {tHOPending}
                         </span>
                     )}
                     {caseData?.handoverStatus === 'acknowledged' && (
                         <span style={{ fontSize: '10px', color: '#2dd4bf', fontWeight: 600 }}>
-                            🟢 Handover Received
+                            🟢 {tHOReceived}
                         </span>
                     )}
                 </div>

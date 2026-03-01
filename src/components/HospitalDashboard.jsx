@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import IncomingCaseAlert from './hospital/IncomingCaseAlert.jsx';
 import IncomingHandoverCard from './handover/IncomingHandoverCard.jsx';
+import { useT } from '../hooks/useT.js';
+import { TK } from '../constants/translationKeys.js';
 import {
     getFirestore,
     collection,
@@ -772,7 +774,7 @@ export default function HospitalDashboard() {
             {handoverCases.length > 0 && (
                 <div className="mb-6 space-y-4">
                     <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                        🚑 Incoming Handovers ({handoverCases.length})
+                        🚑 {useT(TK.HO_INCOMING_HEADER)} ({handoverCases.length})
                     </h3>
                     {handoverCases.map(c => (
                         <IncomingHandoverCard
