@@ -31,6 +31,8 @@ export const CASE_STATUS = {
     ESCALATION_REQUIRED: 'escalation_required',
     DISPATCHER_OVERRIDE: 'dispatcher_override',
     ENROUTE: 'enroute',
+    HANDOVER_INITIATED: 'handover_initiated',
+    HANDOVER_ACKNOWLEDGED: 'handover_acknowledged',
     COMPLETED: 'completed',
 };
 
@@ -312,6 +314,8 @@ export function evaluateEscalation(caseData) {
         CASE_STATUS.ESCALATION_REQUIRED,
         CASE_STATUS.DISPATCHER_OVERRIDE,
         CASE_STATUS.ENROUTE,
+        CASE_STATUS.HANDOVER_INITIATED,
+        CASE_STATUS.HANDOVER_ACKNOWLEDGED,
         CASE_STATUS.COMPLETED,
     ];
     if (nonEscalatable.includes(caseData.status)) {

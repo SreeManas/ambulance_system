@@ -28,6 +28,8 @@ const STATUS_CONFIG = {
     [CASE_STATUS.ESCALATION_REQUIRED]: { label: 'Escalation Required', color: '#ef4444', bg: '#450a0a', icon: AlertTriangle },
     [CASE_STATUS.DISPATCHER_OVERRIDE]: { label: 'Override Active', color: '#fb923c', bg: '#431407', icon: Shield },
     [CASE_STATUS.ENROUTE]: { label: 'En Route', color: '#38bdf8', bg: '#0c4a6e', icon: null },
+    [CASE_STATUS.HANDOVER_INITIATED]: { label: 'Handover Initiated', color: '#a78bfa', bg: '#2e1065', icon: null },
+    [CASE_STATUS.HANDOVER_ACKNOWLEDGED]: { label: 'Handover Received', color: '#2dd4bf', bg: '#042f2e', icon: Check },
     [CASE_STATUS.COMPLETED]: { label: 'Completed', color: '#4ade80', bg: '#052e16', icon: Check },
 };
 
@@ -110,6 +112,18 @@ export default function CaseStatusBadge({ caseData, showDetails = false }) {
                     {caseData?.overrideUsed && (
                         <span style={{ fontSize: '10px', color: '#fb923c', fontWeight: 600 }}>
                             ⚠ Override
+                        </span>
+                    )}
+
+                    {/* Handover indicator */}
+                    {caseData?.handoverStatus === 'initiated' && (
+                        <span style={{ fontSize: '10px', color: '#a78bfa', fontWeight: 600 }}>
+                            🟣 Handover Pending
+                        </span>
+                    )}
+                    {caseData?.handoverStatus === 'acknowledged' && (
+                        <span style={{ fontSize: '10px', color: '#2dd4bf', fontWeight: 600 }}>
+                            🟢 Handover Received
                         </span>
                     )}
                 </div>

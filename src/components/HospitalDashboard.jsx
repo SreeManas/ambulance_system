@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import IncomingCaseAlert from './hospital/IncomingCaseAlert.jsx';
+import IncomingHandoverCard from './handover/IncomingHandoverCard.jsx';
 import {
     getFirestore,
     collection,
@@ -248,6 +249,7 @@ export default function HospitalDashboard() {
 
     // Hospital Response Engine: incoming case notifications
     const [incomingCases, setIncomingCases] = useState([]);
+    const [handoverCases, setHandoverCases] = useState([]);
 
     // Phase: Fetch user doc to check ownership
     useEffect(() => {
@@ -297,6 +299,23 @@ export default function HospitalDashboard() {
                 if (hasNotification) cases.push(data);
             });
             setIncomingCases(cases);
+        });
+        return () => unsub();
+    }, [userHospitalId, db]);
+
+    // Digital Handover: listen for handover_initiated cases targeting this hospital
+    useEffect(() => {
+        if (!userHospitalId) return;
+        const q = query(collection(db, 'emergencyCases'), where('status', '==', 'handover_initiated'));
+        const unsub = onSnapshot(q, (snap) => {
+            const cases = [];
+            snap.forEach(d => {
+                const data = { id: d.id, ...d.data() };
+                const isTarget = data.acceptedHospitalId === userHospitalId ||
+                    data.overrideHospitalId === userHospitalId;
+                if (isTarget && data.handoverStatus === 'initiated') cases.push(data);
+            });
+            setHandoverCases(cases);
         });
         return () => unsub();
     }, [userHospitalId, db]);
@@ -743,6 +762,25 @@ export default function HospitalDashboard() {
                             hospitalId={userHospitalId}
                             onActionComplete={(action) => {
                                 setIncomingCases(prev => prev.filter(p => p.id !== c.id));
+                            }}
+                        />
+                    ))}
+                </div>
+            )}
+
+            {/* Digital Handover: Incoming Handover Cards */}
+            {handoverCases.length > 0 && (
+                <div className="mb-6 space-y-4">
+                    <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                        🚑 Incoming Handovers ({handoverCases.length})
+                    </h3>
+                    {handoverCases.map(c => (
+                        <IncomingHandoverCard
+                            key={c.id}
+                            caseData={c}
+                            hospitalId={userHospitalId}
+                            onAcknowledged={(caseId) => {
+                                setHandoverCases(prev => prev.filter(p => p.id !== caseId));
                             }}
                         />
                     ))}

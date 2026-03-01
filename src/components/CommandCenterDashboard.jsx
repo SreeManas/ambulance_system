@@ -884,7 +884,7 @@ export default function CommandCenterDashboard() {
                                                 </div>
 
                                                 {/* Status detail row */}
-                                                {(ec.status === CASE_STATUS.AWAITING_RESPONSE || ec.status === CASE_STATUS.ESCALATION_REQUIRED || ec.status === CASE_STATUS.DISPATCHER_OVERRIDE) && (
+                                                {(ec.status === CASE_STATUS.AWAITING_RESPONSE || ec.status === CASE_STATUS.ESCALATION_REQUIRED || ec.status === CASE_STATUS.DISPATCHER_OVERRIDE || ec.status === CASE_STATUS.HANDOVER_INITIATED || ec.status === CASE_STATUS.HANDOVER_ACKNOWLEDGED) && (
                                                     <div style={{ marginBottom: 6 }}>
                                                         <CaseStatusBadge caseData={ec} showDetails={true} />
                                                     </div>
