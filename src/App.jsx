@@ -15,6 +15,7 @@ import AppErrorBoundary from "./components/AppErrorBoundary.jsx";
 import EMSChatAssistant from "./components/ai/EMSChatAssistant.jsx";
 import DriverOnboarding from "./pages/DriverOnboarding.jsx";
 import VerificationPending from "./pages/VerificationPending.jsx";
+import PerformanceDashboard from "./components/analytics/PerformanceDashboard.jsx";
 
 // === SHARED COMPONENTS ===
 import RealTimeStatusIndicator from "./components/RealTimeStatusIndicator.jsx";
@@ -56,6 +57,7 @@ const Nav = () => {
     { to: "/intake", label: tPatientIntake, icon: "📝" },
     { to: "/hospitals", label: tHospitals, icon: "🏥" },
     { to: "/live-capacity", label: tLiveCapacity, icon: "📊" },
+    { to: "/performance", label: "Performance", icon: "📈" },
     { to: "/feedback", label: tFeedback, icon: "💬" },
   ];
 
@@ -311,6 +313,11 @@ export default function App() {
                         </div>
                       </AppErrorBoundary>
                     </ProtectedRoute>
+                  } />
+
+                  {/* Performance Intelligence */}
+                  <Route path="/performance" element={
+                    <ProtectedRoute><AppErrorBoundary><PerformanceDashboard /></AppErrorBoundary></ProtectedRoute>
                   } />
 
                   {/* Navigation & Tracking Routes */}

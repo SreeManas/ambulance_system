@@ -139,6 +139,8 @@ export async function dispatchHospitalNotification(caseId, rankedHospitals, acui
             hospitalNotifications: [...existing, ...newNotifications],
             status: CASE_STATUS.AWAITING_RESPONSE,
             awaitingResponseSince: caseData.awaitingResponseSince || now,
+            // Analytics: record dispatch timestamp (first dispatch only)
+            ...(existing.length === 0 ? { dispatchedAt: now } : {}),
         });
     });
 
@@ -200,6 +202,7 @@ export async function handleHospitalAccept(caseId, hospitalId) {
             hospitalNotifications: notifications,
             status: CASE_STATUS.ACCEPTED,
             acceptedHospitalId: hospitalId,
+            acceptedAt: now, // Analytics: record acceptance timestamp
         });
     });
 
