@@ -9,6 +9,7 @@ import { Camera, X, Image as ImageIcon } from 'lucide-react';
 import TriagePanel from './ai/TriagePanel.jsx';
 import { buildTriagePayload, runAITriage, logTriageToFirestore } from '../services/triageService.js';
 import VoiceIntakePanel from './voice/VoiceIntakePanel.jsx';
+import { normalizeAndMapAIData } from '../services/voiceNormalization.js';
 
 // Translation keys
 const TRANSLATIONS = {
@@ -141,31 +142,68 @@ export default function PatientVitalsForm() {
         setTimeout(() => setVoiceFilledFields(prev => { const s = new Set(prev); s.delete(id); return s; }), 1500);
     };
 
-    // Map AI-extracted voice data into form state
-    const applyVoiceData = (data) => {
-        if (!data) return;
-        if (data.patientName != null) { setPatientName(String(data.patientName)); glowField('v-patientName'); }
-        if (data.age != null) { setAge(String(data.age)); glowField('v-age'); }
-        if (data.gender != null && ['male', 'female', 'other'].includes(data.gender)) { setGender(data.gender); glowField('v-gender'); }
-        if (data.heartRate != null) { setHeartRate(String(data.heartRate)); glowField('v-hr'); }
-        if (data.systolicBP != null && data.diastolicBP != null) {
-            setBloodPressure(`${data.systolicBP}/${data.diastolicBP}`);
-            glowField('v-bp');
+    // ── Centralized Voice-to-Form Apply ──────────────────────────────────────
+    // All AI values go through normalizeAndMapAIData() for enum matching,
+    // boolean coercion, numeric clamping, and keyword detection.
+    const applyVoiceData = useCallback((rawData) => {
+        if (!rawData) return;
+
+        const mapped = normalizeAndMapAIData(rawData);
+        if (Object.keys(mapped).length === 0) return;
+
+        // Setter map — every form field that AI can populate
+        const setters = {
+            patientName: [setPatientName, 'v-patientName'],
+            age: [setAge, 'v-age'],
+            gender: [setGender, 'v-gender'],
+            pregnancyStatus: [setPregnancyStatus, 'v-pregnancy'],
+            bloodPressure: [setBloodPressure, 'v-bp'],
+            heartRate: [setHeartRate, 'v-hr'],
+            spo2: [setSpo2, 'v-spo2'],
+            respiratoryRate: [setRespiratoryRate, 'v-rr'],
+            temperature: [setTemperature, 'v-temp'],
+            consciousnessLevel: [setConsciousnessLevel, 'v-gcs'],
+            headInjurySuspected: [setHeadInjurySuspected, 'v-headinjury'],
+            seizureActivity: [setSeizureActivity, 'v-seizure'],
+            breathingStatus: [setBreathingStatus, 'v-breathing'],
+            chestPainPresent: [setChestPainPresent, 'v-chestpain'],
+            cardiacHistoryKnown: [setCardiacHistoryKnown, 'v-cardiac'],
+            injuryType: [setInjuryType, 'v-injury'],
+            bleedingSeverity: [setBleedingSeverity, 'v-bleeding'],
+            burnsPercentage: [setBurnsPercentage, 'v-burns'],
+            emergencyType: [setEmergencyType, 'v-emergency'],
+            transportPriority: [setTransportPriority, 'v-transport'],
+            oxygenAdministered: [setOxygenAdministered, 'v-o2admin'],
+            cprPerformed: [setCprPerformed, 'v-cpr'],
+            ivFluidsStarted: [setIvFluidsStarted, 'v-iv'],
+            ventilatorRequired: [setVentilatorRequired, 'v-vent'],
+            oxygenRequired: [setOxygenRequired, 'v-o2req'],
+            defibrillatorRequired: [setDefibrillatorRequired, 'v-defib'],
+            spinalImmobilization: [setSpinalImmobilization, 'v-spinal'],
+            suspectedInfectious: [setSuspectedInfectious, 'v-infect'],
+            isolationRequired: [setIsolationRequired, 'v-iso'],
+            environmentalRisks: [setEnvironmentalRisks, 'v-location'],
+        };
+
+        for (const [key, value] of Object.entries(mapped)) {
+            const entry = setters[key];
+            if (!entry) continue;
+            const [setter, glowId] = entry;
+            setter(value);
+            glowField(glowId);
         }
-        if (data.spo2 != null) { setSpo2(String(data.spo2)); glowField('v-spo2'); }
-        if (data.respiratoryRate != null) { setRespiratoryRate(String(data.respiratoryRate)); glowField('v-rr'); }
-        if (data.temperature != null) { setTemperature(String(data.temperature)); glowField('v-temp'); }
-        if (data.consciousnessLevel != null && ['alert', 'voice', 'pain', 'unresponsive'].includes(data.consciousnessLevel)) {
-            setConsciousnessLevel(data.consciousnessLevel); glowField('v-gcs');
-        }
-        if (data.emergencyType != null) { setEmergencyType(data.emergencyType); glowField('v-emergency'); }
-        if (data.symptoms != null || data.traumaIndicators != null) {
-            const note = [data.symptoms, data.traumaIndicators].filter(Boolean).join(' | ');
-            setParamedicNotes(prev => prev ? prev : note);
+
+        // Paramedic notes — append, do NOT overwrite existing content
+        if (mapped.paramedicNotes) {
+            setParamedicNotes(prev => {
+                if (!prev || !prev.trim()) return mapped.paramedicNotes;
+                // Avoid duplicating if AI returned same text
+                if (prev.includes(mapped.paramedicNotes)) return prev;
+                return `${prev}\n---\n${mapped.paramedicNotes}`;
+            });
             glowField('v-notes');
         }
-        if (data.locationDescription != null) { setEnvironmentalRisks(data.locationDescription); glowField('v-location'); }
-    };
+    }, []);
 
     // Translation hooks
     const tPatientIntake = useT(TRANSLATIONS.patientIntake);
