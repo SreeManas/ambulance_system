@@ -7,7 +7,7 @@
  * Returns JSON-only — rejects free text and malformed output.
  */
 
-const GEMINI_MODEL = 'gemini-2.5-flash';
+const GEMINI_MODEL = 'gemini-2.0-flash';
 const MAX_TRANSCRIPT_LENGTH = 2000;
 const REQUEST_TIMEOUT_MS = 10_000;
 
@@ -59,7 +59,7 @@ RULES:
 4. confidenceScore is your 0–1 confidence in the overall extraction quality.
 5. missingCriticalFields lists field keys from extractedData that are null but critical for triage.
 
-OUTPUT SCHEMA (exactly this structure, no extra keys):
+  OUTPUT SCHEMA (exactly this structure, no extra keys):
 {
   "extractedData": {
     "patientName": string | null,
@@ -72,6 +72,8 @@ OUTPUT SCHEMA (exactly this structure, no extra keys):
     "respiratoryRate": number | null,
     "temperature": number | null,
     "consciousnessLevel": "alert" | "voice" | "pain" | "unresponsive" | null,
+    "burnsPercentage": number (0-100, body surface area burned) | null,
+    "bleedingSeverity": "none" | "mild" | "severe" | null,
     "traumaIndicators": string | null,
     "symptoms": string | null,
     "emergencyType": "cardiac" | "trauma" | "respiratory" | "neurological" | "obstetric" | "medical" | "burns" | "toxicological" | null,
@@ -81,6 +83,8 @@ OUTPUT SCHEMA (exactly this structure, no extra keys):
   "missingCriticalFields": string[]
 }
 
+For burnsPercentage: extract from phrases like '25% burns', 'burns coverage 30%', 'thirty percent body surface area'.
+For bleedingSeverity: 'heavy/uncontrolled/massive' → 'severe', 'minor/slight/controlled' → 'mild', 'no bleeding' → 'none'.
 Critical fields for triage: ["age", "heartRate", "spo2", "consciousnessLevel", "emergencyType"]`;
 
 export default async function handler(req, res) {

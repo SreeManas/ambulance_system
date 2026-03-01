@@ -29,6 +29,8 @@ const JSON_SCHEMA = `{
   "respiratoryRate": "number or null",
   "temperature": "number or null",
   "consciousnessLevel": "alert|voice|pain|unresponsive or null",
+  "burnsPercentage": "number 0-100 (body surface area burned) or null — extract from phrases like '25% burns', 'burns coverage 30%', 'thirty percent body surface'",
+  "bleedingSeverity": "none|mild|severe or null",
   "traumaIndicators": "string or null",
   "symptoms": "string or null",
   "emergencyType": "string or null",
