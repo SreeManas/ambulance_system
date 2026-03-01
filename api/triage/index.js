@@ -8,7 +8,7 @@
  * POST /api/triage
  */
 
-const GEMINI_MODEL = 'gemini-2.5-flash';
+const GEMINI_MODEL = 'gemini-2.0-flash';
 
 // ─── Rate limiting (in-memory, resets on cold start) ───────────────────────
 const rateLimitMap = new Map();
@@ -123,14 +123,46 @@ function applySafetyDominance(geminiResult, safe) {
 const VALID_LABELS = ['Immediate', 'Critical', 'Urgent', 'Delayed', 'Minor'];
 
 function validateTriageResponse(parsed) {
-    if (typeof parsed !== 'object' || parsed === null) return false;
-    if (parsed.error === 'insufficient_data') return true; // valid error response
+    if (typeof parsed !== 'object' || parsed === null) {
+        console.error('[TRIAGE DEBUG] Validation fail: parsed is not an object', typeof parsed);
+        return false;
+    }
+    if (parsed.error === 'insufficient_data') return true;
+
     const level = parsed.acuity_level;
-    if (typeof level !== 'number' || level < 1 || level > 5) return false;
-    if (!VALID_LABELS.includes(parsed.severity_label)) return false;
-    if (typeof parsed.confidence !== 'number') return false;
-    if (!Array.isArray(parsed.clinical_flags)) return false;
-    if (typeof parsed.reasoning_summary !== 'string') return false;
+    if (typeof level !== 'number' || level < 1 || level > 5) {
+        console.error('[TRIAGE DEBUG] Validation fail: acuity_level invalid', level, typeof level);
+        // Auto-fix: Gemini sometimes returns string "2" instead of number 2
+        if (typeof level === 'string') {
+            const n = parseInt(level, 10);
+            if (n >= 1 && n <= 5) { parsed.acuity_level = n; }
+            else return false;
+        } else return false;
+    }
+    if (!VALID_LABELS.includes(parsed.severity_label)) {
+        console.error('[TRIAGE DEBUG] Validation fail: severity_label invalid', parsed.severity_label);
+        // Auto-fix: case mismatch (e.g. "immediate" → "Immediate")
+        const fixed = VALID_LABELS.find(l => l.toLowerCase() === (parsed.severity_label || '').toLowerCase());
+        if (fixed) { parsed.severity_label = fixed; }
+        else return false;
+    }
+    if (typeof parsed.confidence !== 'number') {
+        console.error('[TRIAGE DEBUG] Validation fail: confidence not a number', parsed.confidence, typeof parsed.confidence);
+        // Auto-fix: string or float
+        const c = parseFloat(parsed.confidence);
+        if (!isNaN(c)) { parsed.confidence = Math.round(c); }
+        else return false;
+    }
+    if (!Array.isArray(parsed.clinical_flags)) {
+        console.error('[TRIAGE DEBUG] Validation fail: clinical_flags not array', parsed.clinical_flags);
+        // Auto-fix: if it's a string, wrap in array
+        if (typeof parsed.clinical_flags === 'string') { parsed.clinical_flags = [parsed.clinical_flags]; }
+        else { parsed.clinical_flags = []; }
+    }
+    if (typeof parsed.reasoning_summary !== 'string') {
+        console.error('[TRIAGE DEBUG] Validation fail: reasoning_summary not string', typeof parsed.reasoning_summary);
+        parsed.reasoning_summary = String(parsed.reasoning_summary || 'AI triage analysis result');
+    }
     return true;
 }
 
@@ -273,10 +305,11 @@ export default async function handler(req, res) {
             { role: 'user', parts: [{ text: `PATIENT VITALS FOR TRIAGE CLASSIFICATION:\n\n${vitalsText}\n\nReturn JSON only.` }] }
         ],
         generationConfig: {
-            temperature: 0.1,   // near-deterministic for clinical safety
+            temperature: 0.1,
             topK: 10,
             topP: 0.9,
             maxOutputTokens: 300,
+            responseMimeType: 'application/json',
         },
         safetySettings: [
             { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
@@ -290,8 +323,14 @@ export default async function handler(req, res) {
     try {
         const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 
+        console.log('[TRIAGE DEBUG] Calling Gemini:', GEMINI_URL.replace(GEMINI_API_KEY, 'REDACTED'));
+        console.log('[TRIAGE DEBUG] Sanitized vitals:', JSON.stringify(safe));
+
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 10_000); // 10s max
+        const timeout = setTimeout(() => {
+            console.error('[TRIAGE DEBUG] ⏰ TIMEOUT — 15s exceeded, aborting Gemini call');
+            controller.abort();
+        }, 15_000);
 
         const geminiResponse = await fetch(GEMINI_URL, {
             method: 'POST',
@@ -301,25 +340,54 @@ export default async function handler(req, res) {
         });
         clearTimeout(timeout);
 
+        console.log('[TRIAGE DEBUG] Gemini HTTP status:', geminiResponse.status);
+
         if (!geminiResponse.ok) {
-            throw new Error(`Gemini API error: ${geminiResponse.status}`);
+            const errBody = await geminiResponse.text().catch(() => '');
+            console.error('[TRIAGE DEBUG] Gemini API error body:', errBody.slice(0, 500));
+            throw new Error(`Gemini API error: ${geminiResponse.status} — ${errBody.slice(0, 200)}`);
         }
 
         const geminiData = await geminiResponse.json();
         const rawText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-        // Extract JSON from response (strip any accidental wrapping)
-        const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) throw new Error('No JSON found in Gemini response');
+        console.log('[TRIAGE DEBUG] Raw Gemini response text:', rawText.slice(0, 600));
 
-        const parsed = JSON.parse(jsonMatch[0]);
+        if (!rawText) {
+            const blockReason = geminiData?.candidates?.[0]?.finishReason;
+            const safetyBlock = geminiData?.promptFeedback?.blockReason;
+            console.error('[TRIAGE DEBUG] Empty response. finishReason:', blockReason, 'safetyBlock:', safetyBlock);
+            throw new Error(`Empty Gemini response. finishReason=${blockReason}, safety=${safetyBlock}`);
+        }
+
+        // Extract JSON from response
+        let parsed;
+        try {
+            parsed = JSON.parse(rawText.trim());
+        } catch (parseErr) {
+            console.error('[TRIAGE DEBUG] Direct JSON.parse failed:', parseErr.message);
+            // Try extracting JSON from markdown wrapper
+            const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) {
+                console.error('[TRIAGE DEBUG] No JSON object found in response at all');
+                throw new Error('No JSON found in Gemini response');
+            }
+            parsed = JSON.parse(jsonMatch[0]);
+        }
+
+        console.log('[TRIAGE DEBUG] Parsed JSON:', JSON.stringify(parsed));
 
         if (!validateTriageResponse(parsed)) {
+            console.error('[TRIAGE DEBUG] Schema validation FAILED after auto-fix attempts');
             throw new Error('Gemini returned invalid triage schema');
         }
 
+        console.log('[TRIAGE DEBUG] ✅ Validation passed. source=gemini');
+
         // ── SAFETY DOMINANCE: Rule-based floor always wins ──────────────────
         const dominantResult = applySafetyDominance({ ...parsed, source: 'gemini' }, safe);
+
+        console.log('[TRIAGE DEBUG] Final result:', JSON.stringify({ level: dominantResult.acuity_level, source: dominantResult.source, override: dominantResult.safety_override }));
 
         return res.status(200).json({
             success: true,
@@ -328,7 +396,8 @@ export default async function handler(req, res) {
 
     } catch (err) {
         // Any Gemini failure → fall back to local rules
-        console.warn('Gemini triage failed, using fallback rules:', err.message);
+        console.error('[TRIAGE DEBUG] ❌ Gemini triage FAILED:', err.message);
+        console.error('[TRIAGE DEBUG] Stack:', err.stack?.split('\n').slice(0, 3).join(' | '));
         const fallback = runFallbackTriage(safe);
         return res.status(200).json({
             success: true,
