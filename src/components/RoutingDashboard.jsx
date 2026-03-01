@@ -177,6 +177,22 @@ export default function RoutingDashboard() {
     const [activeOverride, setActiveOverride] = useState(null);
     const [showAuditTab, setShowAuditTab] = useState(false);
 
+    // Manual refresh
+    const [refreshKey, setRefreshKey] = useState(0);
+    const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+    const [lastRefreshedAt, setLastRefreshedAt] = useState(null);
+
+    const handleManualRefresh = useCallback(() => {
+        setIsManualRefreshing(true);
+        setRoutes({});               // clear cached routes so they re-fetch
+        setRankedHospitals([]);      // force re-rank
+        setRefreshKey(k => k + 1);  // bump key → re-subscribe Firestore
+        setTimeout(() => {
+            setIsManualRefreshing(false);
+            setLastRefreshedAt(Date.now());
+        }, 1500);
+    }, []);
+
     // Phase 5: Mapbox resize debounce ref
     const resizeTimeoutRef = useRef(null);
 
@@ -210,7 +226,7 @@ export default function RoutingDashboard() {
         });
 
         return () => unsubscribe();
-    }, [db, selectedCase]);
+    }, [db, selectedCase, refreshKey]); // refreshKey forces re-subscribe on manual refresh
 
     // Listen to hospitals with debounced scoring (Phase 5B)
     useEffect(() => {
@@ -233,7 +249,7 @@ export default function RoutingDashboard() {
         });
 
         return () => unsubscribe();
-    }, [db]);
+    }, [db, refreshKey]); // refreshKey forces re-subscribe on manual refresh
 
     // =============================================================================
     // PHASE 2: OVERRIDE DETECTION — Listen for dispatch overrides on active case
@@ -914,6 +930,22 @@ export default function RoutingDashboard() {
                     >
                         <Layers className="w-4 h-4" />
                         Compare Routes
+                    </button>
+
+                    {/* Manual Refresh Button */}
+                    <button
+                        onClick={handleManualRefresh}
+                        disabled={isManualRefreshing}
+                        title={lastRefreshedAt ? `Last refreshed ${Math.round((Date.now() - lastRefreshedAt) / 1000)}s ago` : 'Refresh all data'}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${isManualRefreshing
+                                ? 'bg-emerald-600/30 text-emerald-400 cursor-not-allowed'
+                                : 'bg-gray-700 text-gray-300 hover:bg-emerald-600 hover:text-white'
+                            }`}
+                    >
+                        <RefreshCw className={`w-4 h-4 ${isManualRefreshing ? 'animate-spin' : ''}`} />
+                        <span className="text-sm font-medium">
+                            {isManualRefreshing ? 'Refreshing...' : 'Refresh Data'}
+                        </span>
                     </button>
                 </div>
             </div>
