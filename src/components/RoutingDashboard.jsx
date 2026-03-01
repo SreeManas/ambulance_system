@@ -917,6 +917,7 @@ export default function RoutingDashboard() {
                             scoringLastRun={scoringLastRun}
                             isRecomputing={isRecomputing}
                             hospitalCount={hospitals.length}
+                            lastRefreshedAt={lastRefreshedAt}
                         />
                     </div>
 
@@ -938,8 +939,8 @@ export default function RoutingDashboard() {
                         disabled={isManualRefreshing}
                         title={lastRefreshedAt ? `Last refreshed ${Math.round((Date.now() - lastRefreshedAt) / 1000)}s ago` : 'Refresh all data'}
                         className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${isManualRefreshing
-                                ? 'bg-emerald-600/30 text-emerald-400 cursor-not-allowed'
-                                : 'bg-gray-700 text-gray-300 hover:bg-emerald-600 hover:text-white'
+                            ? 'bg-emerald-600/30 text-emerald-400 cursor-not-allowed'
+                            : 'bg-gray-700 text-gray-300 hover:bg-emerald-600 hover:text-white'
                             }`}
                     >
                         <RefreshCw className={`w-4 h-4 ${isManualRefreshing ? 'animate-spin' : ''}`} />

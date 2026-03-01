@@ -4,7 +4,7 @@
  * Displays operational state of the routing engine
  * 
  * States:
- * 🟢 Routing Synced - Data is fresh and routing is up-to-date
+ * 🟢 Routing Synced - Data is fresh or was recently manually refreshed
  * 🟡 Recomputing... - Routing calculation in progress
  * 🔴 Capacity Data Stale - Hospital capacity data is older than 24 hours
  */
@@ -14,7 +14,8 @@ export default function RoutingStatusBanner({
     capacityLastUpdated,
     scoringLastRun,
     isRecomputing,
-    hospitalCount = 0
+    hospitalCount = 0,
+    lastRefreshedAt = null   // timestamp of last manual refresh
 }) {
     const getStatus = () => {
         if (isRecomputing) {
@@ -35,20 +36,32 @@ export default function RoutingStatusBanner({
             };
         }
 
+        // If user manually refreshed within last 5 minutes, treat as synced
+        const MANUAL_REFRESH_GRACE_MS = 5 * 60 * 1000;
+        if (lastRefreshedAt && (Date.now() - lastRefreshedAt) < MANUAL_REFRESH_GRACE_MS) {
+            const secsAgo = Math.round((Date.now() - lastRefreshedAt) / 1000);
+            return {
+                color: 'green',
+                icon: '🟢',
+                text: `Routing synced • ${hospitalCount} hospitals • Refreshed ${secsAgo}s ago`,
+                pulse: false
+            };
+        }
+
         const staleness = Date.now() - capacityLastUpdated;
         const STALE_THRESHOLD = 24 * 60 * 60 * 1000; // 24 hours
 
         if (staleness > STALE_THRESHOLD) {
             const hoursStale = Math.floor(staleness / (60 * 60 * 1000));
             return {
-                color: 'red',
-                icon: '🔴',
-                text: `Capacity data stale (${hoursStale}h old - refresh recommended)`,
-                pulse: true
+                color: 'yellow',
+                icon: '🟡',
+                text: `Capacity data ${hoursStale}h old — click Refresh Data to sync`,
+                pulse: false
             };
         }
 
-        // Calculate freshness indicator
+        // Fresh data
         const minutesAgo = Math.floor(staleness / 60000);
         const freshnessText = minutesAgo < 1
             ? 'just now'
