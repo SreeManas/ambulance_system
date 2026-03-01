@@ -50,6 +50,7 @@ const Nav = () => {
   const tRole = useT("Role");
 
   const tLiveCapacity = useT("Live Capacity");
+  const tPerformance = useT("Performance");
 
   const navigationItems = [
     { to: "/routing", label: tRouting, icon: "🗺️" },
@@ -57,7 +58,7 @@ const Nav = () => {
     { to: "/intake", label: tPatientIntake, icon: "📝" },
     { to: "/hospitals", label: tHospitals, icon: "🏥" },
     { to: "/live-capacity", label: tLiveCapacity, icon: "📊" },
-    { to: "/performance", label: "Performance", icon: "📈" },
+    { to: "/performance", label: tPerformance, icon: "📈" },
     { to: "/feedback", label: tFeedback, icon: "💬" },
   ];
 
