@@ -65,27 +65,61 @@ RULES:
     "patientName": string | null,
     "age": number | null,
     "gender": "male" | "female" | "other" | null,
+    "pregnancyStatus": "pregnant" | "not_pregnant" | "unknown" | null,
+
     "heartRate": number | null,
     "systolicBP": number | null,
     "diastolicBP": number | null,
     "spo2": number | null,
     "respiratoryRate": number | null,
     "temperature": number | null,
+
     "consciousnessLevel": "alert" | "voice" | "pain" | "unresponsive" | null,
-    "burnsPercentage": number (0-100, body surface area burned) | null,
+    "headInjurySuspected": boolean | null,
+    "seizureActivity": boolean | null,
+
+    "breathingStatus": "normal" | "labored" | "assisted" | "not_breathing" | null,
+    "chestPainPresent": boolean | null,
+    "cardiacHistoryKnown": boolean | null,
+
+    "injuryType": "none" | "fracture" | "polytrauma" | "burns" | "laceration" | "internal" | null,
     "bleedingSeverity": "none" | "mild" | "severe" | null,
-    "traumaIndicators": string | null,
-    "symptoms": string | null,
-    "emergencyType": "cardiac" | "trauma" | "respiratory" | "neurological" | "obstetric" | "medical" | "burns" | "toxicological" | null,
+    "burnsPercentage": number (0-100, body surface area) | null,
+
+    "emergencyType": "cardiac" | "accident" | "medical" | "fire" | "industrial" | "other" | null,
+
+    "oxygenAdministered": boolean | null,
+    "cprPerformed": boolean | null,
+    "ivFluidsStarted": boolean | null,
+
+    "transportPriority": "immediate" | "urgent" | "delayed" | "minor" | null,
+    "ventilatorRequired": boolean | null,
+    "oxygenRequired": boolean | null,
+    "defibrillatorRequired": boolean | null,
+    "spinalImmobilization": boolean | null,
+
+    "suspectedInfectious": boolean | null,
+    "isolationRequired": boolean | null,
+
+    "paramedicNotes": string | null,
     "locationDescription": string | null
   },
   "confidenceScore": number,
   "missingCriticalFields": string[]
 }
 
-For burnsPercentage: extract from phrases like '25% burns', 'burns coverage 30%', 'thirty percent body surface area'.
-For bleedingSeverity: 'heavy/uncontrolled/massive' → 'severe', 'minor/slight/controlled' → 'mild', 'no bleeding' → 'none'.
+Extraction hints:
+- pregnancyStatus: 'pregnant/expecting/gravid'→pregnant, 'not pregnant'→not_pregnant
+- consciousnessLevel: 'awake/alert'→alert, 'responds to voice'→voice, 'responds to pain'→pain, 'unconscious/unresponsive/coma'→unresponsive
+- breathingStatus: 'SOB/wheezing/labored/difficulty breathing'→labored, 'BVM/intubated/ventilator'→assisted, 'apnea/not breathing'→not_breathing
+- injuryType: 'broken bone'→fracture, 'multiple injuries'→polytrauma, 'cut/stab/wound'→laceration, 'internal bleeding/blunt trauma'→internal
+- bleedingSeverity: 'heavy/uncontrolled/massive/hemorrhage'→severe, 'minor/slight/controlled'→mild
+- burnsPercentage: extract number from '25% burns', 'burns covering 30 percent', 'thirty percent BSA'
+- emergencyType: 'RTA/crash/collision'→accident, 'heart attack/MI'→cardiac, 'factory/chemical'→industrial
+- transportPriority: 'priority 1/red/stat/critical'→immediate, 'priority 2/yellow'→urgent, 'priority 3/green/stable'→delayed, 'priority 4/white/minor'→minor
+- booleans: 'oxygen given/O2 applied/nasal cannula'→oxygenAdministered=true, 'CPR/chest compressions'→cprPerformed=true, 'IV started/normal saline'→ivFluidsStarted=true, 'c-collar/backboard/spinal precautions'→spinalImmobilization=true
 Critical fields for triage: ["age", "heartRate", "spo2", "consciousnessLevel", "emergencyType"]`;
+
 
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -124,7 +158,7 @@ export default async function handler(req, res) {
         contents: [{ role: 'user', parts: [{ text: `Extract clinical data from this paramedic transcript:\n\n"${clean}"` }] }],
         generationConfig: {
             temperature: 0.1,
-            maxOutputTokens: 1024,
+            maxOutputTokens: 2048,
             responseMimeType: 'application/json',
         },
     };

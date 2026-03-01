@@ -19,25 +19,54 @@ const CORS_HEADERS = {
 
 const JSON_SCHEMA = `{
   "transcript": "string — verbatim transcription of the audio",
-  "patientName": "string or null",
-  "age": "number or null",
+
+  "patientName": "string or null — patient's name if mentioned",
+  "age": "number or null — patient age in years",
   "gender": "male|female|other or null",
-  "heartRate": "number or null",
-  "systolicBP": "number or null",
-  "diastolicBP": "number or null",
-  "spo2": "number or null",
-  "respiratoryRate": "number or null",
-  "temperature": "number or null",
-  "consciousnessLevel": "alert|voice|pain|unresponsive or null",
-  "burnsPercentage": "number 0-100 (body surface area burned) or null — extract from phrases like '25% burns', 'burns coverage 30%', 'thirty percent body surface'",
-  "bleedingSeverity": "none|mild|severe or null",
-  "traumaIndicators": "string or null",
-  "symptoms": "string or null",
-  "emergencyType": "string or null",
-  "locationDescription": "string or null",
+  "pregnancyStatus": "pregnant|not_pregnant|unknown or null — extract from 'pregnant', 'not pregnant', 'gravid'",
+
+  "heartRate": "number or null — heart rate in bpm",
+  "systolicBP": "number or null — systolic blood pressure",
+  "diastolicBP": "number or null — diastolic blood pressure",
+  "spo2": "number or null — oxygen saturation percent",
+  "respiratoryRate": "number or null — breaths per minute",
+  "temperature": "number or null — body temperature (numeric value only)",
+
+  "consciousnessLevel": "alert|voice|pain|unresponsive or null — AVPU scale. 'awake/conscious/alert'→alert, 'responds to voice/verbal'→voice, 'responds to pain'→pain, 'unconscious/unresponsive/coma'→unresponsive",
+
+  "headInjurySuspected": "boolean or null — true if head injury, head trauma, TBI, or concussion mentioned",
+  "seizureActivity": "boolean or null — true if seizure, convulsion, or fitting mentioned",
+
+  "breathingStatus": "normal|labored|assisted|not_breathing or null — 'difficulty breathing/SOB/wheezing'→labored, 'intubated/BVM/ventilator'→assisted, 'apnea/not breathing/respiratory arrest'→not_breathing",
+  "chestPainPresent": "boolean or null — true if chest pain, angina, or substernal pain mentioned",
+  "cardiacHistoryKnown": "boolean or null — true if known heart disease, cardiac history, or prior MI mentioned",
+
+  "injuryType": "none|fracture|polytrauma|burns|laceration|internal or null — 'broken bone'→fracture, 'multiple injuries'→polytrauma, 'cut/wound/stab'→laceration, 'internal bleeding/blunt trauma'→internal",
+  "bleedingSeverity": "none|mild|severe or null — 'heavy/uncontrolled/massive/hemorrhage'→severe, 'minor/controlled/slight'→mild",
+  "burnsPercentage": "number 0-100 or null — body surface area with burns. Extract from '25% burns', 'burns coverage 30%', 'thirty percent BSA'",
+
+  "emergencyType": "medical|accident|cardiac|fire|industrial|other or null — 'RTA/crash/collision'→accident, 'heart attack/MI/chest pain'→cardiac, 'fire/smoke inhalation'→fire, 'factory/chemical/electrocution'→industrial",
+
+  "oxygenAdministered": "boolean or null — true if oxygen given, O2 mask applied, nasal cannula mentioned",
+  "cprPerformed": "boolean or null — true if CPR, chest compressions, or resuscitation mentioned",
+  "ivFluidsStarted": "boolean or null — true if IV, intravenous fluids, normal saline, or drip started",
+
+  "transportPriority": "immediate|urgent|delayed|minor or null — 'priority 1/red/critical/stat'→immediate, 'priority 2/yellow/urgent'→urgent, 'priority 3/green/stable/delayed'→delayed, 'priority 4/white/minor/walking wounded'→minor",
+  "ventilatorRequired": "boolean or null — true if ventilator, mechanical ventilation, or intubation required",
+  "oxygenRequired": "boolean or null — true if oxygen support or supplemental O2 required during transport",
+  "defibrillatorRequired": "boolean or null — true if defibrillator, AED, or shock therapy required",
+  "spinalImmobilization": "boolean or null — true if spinal precautions, c-collar, backboard, or neck injury mentioned",
+
+  "suspectedInfectious": "boolean or null — true if infection, fever with suspected disease, TB, COVID, or infectious mentioned",
+  "isolationRequired": "boolean or null — true if isolation, quarantine, or barrier precautions mentioned",
+
+  "paramedicNotes": "string or null — any additional clinical observations, medications, allergies, or context not captured above",
+  "locationDescription": "string or null — scene description, environmental hazards, or incident location details",
+
   "confidenceScore": "number 0.0-1.0",
-  "missingCriticalFields": ["array of string field names that are clinically important but absent"]
+  "missingCriticalFields": ["array of field names that are clinically important but were not mentioned"]
 }`;
+
 
 const SYSTEM_PROMPT = `You are a clinical data extraction AI assistant for emergency medical services.
 
@@ -129,7 +158,7 @@ export default async function handler(req, res) {
                 generationConfig: {
                     temperature: 0.1,
                     responseMimeType: 'application/json',
-                    maxOutputTokens: 1024,
+                    maxOutputTokens: 2048,
                 },
             }),
         });
