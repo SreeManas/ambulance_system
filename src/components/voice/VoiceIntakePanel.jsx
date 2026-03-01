@@ -1,16 +1,63 @@
 /**
  * VoiceIntakePanel.jsx — Voice-to-Intake with AI Structured Extraction
  *
- * All user-facing strings are translatable via useT(TK.KEY).
- * Workflow: speak → transcript → Gemini extraction → confirmation modal → apply
+ * Hardened SpeechRecognition implementation:
+ * - HTTPS safety check (allows localhost)
+ * - Full error code mapping (no raw codes shown to user)
+ * - onspeechend → stop() to prevent network timeout errors
+ * - No auto-restart, no recursive onend
+ * - Single instance guard via recognitionRef
+ * - Unmount abort
+ * - All strings via useT(TK.VI_*)
  */
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
-    Mic, MicOff, Loader2, CheckCircle, XCircle, AlertTriangle, Activity
+    Mic, MicOff, Loader2, CheckCircle, XCircle, AlertTriangle, Activity, WifiOff
 } from 'lucide-react';
 import { useT } from '../../hooks/useT.js';
 import { TK } from '../../constants/translationKeys.js';
+
+// ─── HTTPS / browser capability check ────────────────────────────────────────
+
+function getCapabilityState() {
+    const isLocalhost =
+        window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1';
+    const isSecure =
+        window.location.protocol === 'https:' || isLocalhost;
+
+    if (!isSecure) return 'insecure';
+
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return 'unsupported';
+
+    return 'ready';
+}
+
+// ─── Error code → TK key mapping ─────────────────────────────────────────────
+
+function mapSpeechError(code) {
+    switch (code) {
+        case 'not-allowed':
+        case 'permission-denied':
+            return TK.VI_PERMISSION_DENIED;
+        case 'service-not-allowed':
+            return TK.VI_PERMISSION_DENIED; // speech service blocked — same UX
+        case 'audio-capture':
+            return 'Microphone not detected. Please check your audio device.';
+        case 'no-speech':
+            return null; // soft — handled separately as warning, not error
+        case 'aborted':
+            return null; // user-initiated, not an error
+        case 'network':
+            return TK.VI_TIMEOUT; // only surfaced when HTTPS + mic OK
+        case 'language-not-supported':
+            return 'Language not supported by browser speech service.';
+        default:
+            return `Speech recognition unavailable (${code}).`;
+    }
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CONFIDENCE BAR
@@ -70,10 +117,6 @@ function ExtractedField({ label, value, isMissing }) {
     );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// FIELD LABELS (translated inline)
-// ═══════════════════════════════════════════════════════════════════════════════
-
 const RAW_FIELD_LABELS = {
     patientName: 'Patient Name',
     age: 'Age',
@@ -119,7 +162,6 @@ function ConfirmationModal({ transcript, parsedData, onApply, onCancel }) {
                 border: '1px solid #334155', boxShadow: '0 25px 60px rgba(0,0,0,0.5)',
                 maxHeight: '90vh', display: 'flex', flexDirection: 'column',
             }}>
-                {/* Header */}
                 <div style={{
                     padding: '16px 20px', borderBottom: '1px solid #1e293b',
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -135,12 +177,10 @@ function ConfirmationModal({ transcript, parsedData, onApply, onCancel }) {
                     </button>
                 </div>
 
-                {/* Confidence */}
                 <div style={{ padding: '12px 20px 0' }}>
                     <ConfidenceBar score={confidenceScore} />
                 </div>
 
-                {/* Side-by-side */}
                 <div style={{
                     display: 'grid', gridTemplateColumns: '1fr 1fr',
                     gap: 16, padding: '12px 20px', overflowY: 'auto', flex: 1,
@@ -188,7 +228,6 @@ function ConfirmationModal({ transcript, parsedData, onApply, onCancel }) {
                     </div>
                 </div>
 
-                {/* Actions */}
                 <div style={{
                     padding: '12px 20px', borderTop: '1px solid #1e293b',
                     display: 'flex', gap: 8, justifyContent: 'flex-end',
@@ -219,20 +258,22 @@ function ConfirmationModal({ transcript, parsedData, onApply, onCancel }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export default function VoiceIntakePanel({ onApplyData }) {
+    // capability: 'ready' | 'insecure' | 'unsupported'
+    const [capability] = useState(() => getCapabilityState());
     const [isRecording, setIsRecording] = useState(false);
     const [transcript, setTranscript] = useState('');
     const [interimText, setInterimText] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
     const [parsedData, setParsedData] = useState(null);
     const [error, setError] = useState(null);
-    const [supported, setSupported] = useState(true);
+    const [noSpeech, setNoSpeech] = useState(false);
     const [showModal, setShowModal] = useState(false);
 
     const recognitionRef = useRef(null);
     const isRecordingRef = useRef(false);
     const abortRef = useRef(null);
 
-    // Translate all UI labels
+    // Translated UI strings
     const tModeLabel = useT(TK.VI_MODE_LABEL);
     const tOptional = useT(TK.VI_OPTIONAL);
     const tRecordingLabel = useT(TK.VI_RECORDING);
@@ -241,45 +282,80 @@ export default function VoiceIntakePanel({ onApplyData }) {
     const tExtract = useT(TK.VI_EXTRACT);
     const tExtracting = useT(TK.VI_EXTRACTING);
     const tUnsupported = useT(TK.VI_UNSUPPORTED);
-    const tPermDenied = useT(TK.VI_PERMISSION_DENIED);
-    const tNoSpeech = useT(TK.VI_NO_SPEECH);
     const tTooShort = useT(TK.VI_TOO_SHORT);
     const tTooLong = useT(TK.VI_TOO_LONG);
     const tTimeout = useT(TK.VI_TIMEOUT);
-    const tStartErr = useT(TK.VI_START_ERROR);
+    const tPermDenied = useT(TK.VI_PERMISSION_DENIED);
+    const tNoSpeech = useT(TK.VI_NO_SPEECH);
+    const tInsecure = useT('Voice recognition requires HTTPS.');
 
+    // Translated error map (resolved at runtime so hooks fire)
+    const errorTranslations = {
+        [TK.VI_PERMISSION_DENIED]: tPermDenied,
+        [TK.VI_TIMEOUT]: tTimeout,
+        [TK.VI_NO_SPEECH]: tNoSpeech,
+    };
+
+    const resolveError = useCallback((tkOrRaw) => {
+        if (!tkOrRaw) return null;
+        return errorTranslations[tkOrRaw] ?? tkOrRaw;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [tPermDenied, tTimeout, tNoSpeech]);
+
+    // Abort recognition safely on unmount
     useEffect(() => {
-        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SR) setSupported(false);
+        return () => {
+            if (recognitionRef.current) {
+                try { recognitionRef.current.abort(); } catch { /* ignore */ }
+                recognitionRef.current = null;
+            }
+            if (abortRef.current) {
+                try { abortRef.current.abort(); } catch { /* ignore */ }
+            }
+        };
     }, []);
 
-    const stopRecordingCleanup = useCallback(() => {
+    const resetRecordingState = useCallback(() => {
         setIsRecording(false);
         setInterimText('');
         isRecordingRef.current = false;
     }, []);
 
     const startRecording = useCallback(() => {
+        // Guard: only one instance at a time
         if (isRecordingRef.current) return;
+        if (capability !== 'ready') return;
+
         const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SR) { setSupported(false); return; }
+        if (!SR) return;
+
+        // Abort any stale instance before creating a new one
+        if (recognitionRef.current) {
+            try { recognitionRef.current.abort(); } catch { /* ignore */ }
+            recognitionRef.current = null;
+        }
 
         setError(null);
+        setNoSpeech(false);
         setTranscript('');
         setInterimText('');
         setParsedData(null);
 
         const recognition = new SR();
-        recognition.continuous = false;
+        recognition.continuous = false;   // IMPORTANT: prevents network timeout loops
         recognition.interimResults = true;
-        recognition.lang = 'en-IN';
         recognition.maxAlternatives = 1;
+        recognition.lang = 'en-IN';
         recognitionRef.current = recognition;
 
-        recognition.onstart = () => { setIsRecording(true); isRecordingRef.current = true; };
+        recognition.onstart = () => {
+            setIsRecording(true);
+            isRecordingRef.current = true;
+        };
 
         recognition.onresult = (event) => {
-            let interim = '', final = '';
+            let interim = '';
+            let final = '';
             for (let i = event.resultIndex; i < event.results.length; i++) {
                 const text = event.results[i][0].transcript;
                 if (event.results[i].isFinal) final += text + ' ';
@@ -289,35 +365,72 @@ export default function VoiceIntakePanel({ onApplyData }) {
             setInterimText(interim);
         };
 
-        recognition.onerror = (event) => {
-            if (event.error === 'not-allowed' || event.error === 'permission-denied') setError(tPermDenied);
-            else if (event.error === 'no-speech') setError(tNoSpeech);
-            else setError(`Speech recognition error: ${event.error}`);
-            stopRecordingCleanup();
+        // onspeechend: stop cleanly so the browser doesn't time out → no "network" error
+        recognition.onspeechend = () => {
+            try { recognition.stop(); } catch { /* ignore */ }
         };
 
-        recognition.onend = () => stopRecordingCleanup();
+        recognition.onerror = (event) => {
+            const code = event.error;
+
+            // "aborted" is user-initiated (we called abort/stop) — not an error
+            if (code === 'aborted') {
+                resetRecordingState();
+                return;
+            }
+
+            // "no-speech" is a soft warning — show inline, don't block further recording
+            if (code === 'no-speech') {
+                setNoSpeech(true);
+                resetRecordingState();
+                return;
+            }
+
+            // All other errors: map and display
+            const tkOrRaw = mapSpeechError(code);
+            setError(resolveError(tkOrRaw));
+            // Clear transcript on errors so stale data isn't processed
+            setTranscript('');
+            resetRecordingState();
+        };
+
+        // onend: NEVER restart — only clean up state
+        // (auto-restart causes recursive network errors)
+        recognition.onend = () => {
+            resetRecordingState();
+            recognitionRef.current = null;
+        };
 
         try {
             recognition.start();
-        } catch {
-            setError(tStartErr);
-            stopRecordingCleanup();
+        } catch (err) {
+            setError('Failed to start speech recognition. Please try again.');
+            resetRecordingState();
+            recognitionRef.current = null;
         }
-    }, [tPermDenied, tNoSpeech, tStartErr, stopRecordingCleanup]);
+    }, [capability, resolveError, resetRecordingState]);
 
     const stopRecording = useCallback(() => {
-        recognitionRef.current?.stop();
-        stopRecordingCleanup();
-    }, [stopRecordingCleanup]);
+        if (!isRecordingRef.current) return;
+        if (recognitionRef.current) {
+            try {
+                // Use stop() (not abort()) so onresult fires for pending results
+                recognitionRef.current.stop();
+            } catch { /* ignore */ }
+        }
+        // State will reset via onend
+    }, []);
 
     const processWithAI = useCallback(async (text) => {
         if (isProcessing) return;
-        if (!text || text.trim().length < 5) { setError(tTooShort); return; }
-        if (text.length > 2000) { setError(tTooLong); return; }
+        const trimmed = text?.trim() || '';
+        if (trimmed.length < 5) { setError(tTooShort); return; }
+        if (trimmed.length > 2000) { setError(tTooLong); return; }
 
         setIsProcessing(true);
         setError(null);
+        setNoSpeech(false);
+
         const controller = new AbortController();
         abortRef.current = controller;
         const timeout = setTimeout(() => controller.abort(), 10_000);
@@ -326,7 +439,7 @@ export default function VoiceIntakePanel({ onApplyData }) {
             const res = await fetch('/api/voice-intake', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ transcript: text.trim() }),
+                body: JSON.stringify({ transcript: trimmed }),
                 signal: controller.signal,
             });
             clearTimeout(timeout);
@@ -353,18 +466,35 @@ export default function VoiceIntakePanel({ onApplyData }) {
         setParsedData(null);
     }, []);
 
-    if (!supported) {
+    // ── Capability gate ───────────────────────────────────────────────────────
+
+    if (capability === 'insecure') {
         return (
             <div style={{
                 background: '#1e293b', borderRadius: 12, padding: '12px 16px',
                 border: '1px solid #334155', marginBottom: 20,
-                display: 'flex', alignItems: 'center', gap: 8, color: '#94a3b8', fontSize: 13,
+                display: 'flex', alignItems: 'center', gap: 10, color: '#94a3b8', fontSize: 13,
+            }}>
+                <WifiOff size={14} color="#f59e0b" />
+                <span style={{ color: '#fcd34d', fontWeight: 600 }}>{tInsecure}</span>
+            </div>
+        );
+    }
+
+    if (capability === 'unsupported') {
+        return (
+            <div style={{
+                background: '#1e293b', borderRadius: 12, padding: '12px 16px',
+                border: '1px solid #334155', marginBottom: 20,
+                display: 'flex', alignItems: 'center', gap: 10, color: '#94a3b8', fontSize: 13,
             }}>
                 <MicOff size={14} />
                 {tUnsupported}
             </div>
         );
     }
+
+    // ── Main panel ────────────────────────────────────────────────────────────
 
     return (
         <>
@@ -373,6 +503,7 @@ export default function VoiceIntakePanel({ onApplyData }) {
                 borderRadius: 14, border: '1px solid #334155',
                 padding: '16px 18px', marginBottom: 24,
             }}>
+                {/* Title row */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <Mic size={16} color="#3b82f6" />
@@ -393,22 +524,31 @@ export default function VoiceIntakePanel({ onApplyData }) {
                     )}
                 </div>
 
+                {/* Action buttons */}
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                     {!isRecording ? (
-                        <button type="button" onClick={startRecording} disabled={isProcessing} id="btn-voice-start"
+                        <button
+                            type="button"
+                            onClick={startRecording}
+                            disabled={isProcessing}
+                            id="btn-voice-start"
                             style={{
                                 display: 'flex', alignItems: 'center', gap: 6,
                                 padding: '8px 16px',
                                 background: isProcessing ? '#1e293b' : 'linear-gradient(135deg, #3b82f6, #2563eb)',
-                                color: isProcessing ? '#64748b' : 'white', border: 'none',
-                                borderRadius: 8, fontSize: 13, fontWeight: 700,
+                                color: isProcessing ? '#64748b' : 'white',
+                                border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700,
                                 cursor: isProcessing ? 'not-allowed' : 'pointer',
                                 boxShadow: isProcessing ? 'none' : '0 4px 12px rgba(59,130,246,0.3)',
-                            }}>
+                            }}
+                        >
                             <Mic size={14} /> 🎤 {tStart}
                         </button>
                     ) : (
-                        <button type="button" onClick={stopRecording} id="btn-voice-stop"
+                        <button
+                            type="button"
+                            onClick={stopRecording}
+                            id="btn-voice-stop"
                             style={{
                                 display: 'flex', alignItems: 'center', gap: 6,
                                 padding: '8px 16px',
@@ -417,13 +557,17 @@ export default function VoiceIntakePanel({ onApplyData }) {
                                 fontSize: 13, fontWeight: 700, cursor: 'pointer',
                                 boxShadow: '0 4px 12px rgba(220,38,38,0.3)',
                                 animation: 'voicePulseBorder 1.5s ease-in-out infinite',
-                            }}>
+                            }}
+                        >
                             <MicOff size={14} /> {tStop}
                         </button>
                     )}
 
                     {transcript && !isRecording && !isProcessing && (
-                        <button type="button" onClick={() => processWithAI(transcript)} id="btn-voice-process"
+                        <button
+                            type="button"
+                            onClick={() => processWithAI(transcript)}
+                            id="btn-voice-process"
                             style={{
                                 display: 'flex', alignItems: 'center', gap: 6,
                                 padding: '8px 16px',
@@ -431,7 +575,8 @@ export default function VoiceIntakePanel({ onApplyData }) {
                                 color: 'white', border: 'none', borderRadius: 8,
                                 fontSize: 13, fontWeight: 700, cursor: 'pointer',
                                 boxShadow: '0 4px 12px rgba(124,58,237,0.3)',
-                            }}>
+                            }}
+                        >
                             <Activity size={14} /> {tExtract}
                         </button>
                     )}
@@ -444,18 +589,34 @@ export default function VoiceIntakePanel({ onApplyData }) {
                     )}
                 </div>
 
+                {/* Live transcript */}
                 {(transcript || interimText) && (
                     <div style={{
                         marginTop: 10, background: '#0f172a', borderRadius: 8,
-                        padding: '8px 12px', border: '1px solid #334155', maxHeight: 80, overflowY: 'auto',
+                        padding: '8px 12px', border: '1px solid #334155',
+                        maxHeight: 80, overflowY: 'auto',
                     }}>
                         <div style={{ color: '#cbd5e1', fontSize: 12, lineHeight: 1.6 }}>
                             {transcript}
-                            {interimText && <span style={{ color: '#475569', fontStyle: 'italic' }}>{interimText}</span>}
+                            {interimText && (
+                                <span style={{ color: '#475569', fontStyle: 'italic' }}>{interimText}</span>
+                            )}
                         </div>
                     </div>
                 )}
 
+                {/* No-speech soft warning */}
+                {noSpeech && !error && (
+                    <div style={{
+                        marginTop: 8, display: 'flex', alignItems: 'center', gap: 6,
+                        padding: '6px 10px', background: '#422006', borderRadius: 6,
+                        color: '#fcd34d', fontSize: 12, fontWeight: 600, border: '1px solid #78350f',
+                    }}>
+                        <AlertTriangle size={11} /> {tNoSpeech}
+                    </div>
+                )}
+
+                {/* Hard error */}
                 {error && (
                     <div style={{
                         marginTop: 8, display: 'flex', alignItems: 'center', gap: 6,
@@ -467,6 +628,7 @@ export default function VoiceIntakePanel({ onApplyData }) {
                 )}
             </div>
 
+            {/* Confirmation modal */}
             {showModal && parsedData && (
                 <ConfirmationModal
                     transcript={transcript}
@@ -477,8 +639,14 @@ export default function VoiceIntakePanel({ onApplyData }) {
             )}
 
             <style>{`
-                @keyframes voicePulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.4); } }
-                @keyframes voicePulseBorder { 0%, 100% { box-shadow: 0 4px 12px rgba(220,38,38,0.3); } 50% { box-shadow: 0 4px 20px rgba(220,38,38,0.6); } }
+                @keyframes voicePulse {
+                    0%, 100% { opacity: 1; transform: scale(1); }
+                    50% { opacity: 0.5; transform: scale(1.4); }
+                }
+                @keyframes voicePulseBorder {
+                    0%, 100% { box-shadow: 0 4px 12px rgba(220,38,38,0.3); }
+                    50% { box-shadow: 0 4px 20px rgba(220,38,38,0.6); }
+                }
                 @keyframes spin { 100% { transform: rotate(360deg); } }
                 @keyframes voiceFieldGlow {
                     0% { box-shadow: 0 0 0 0 rgba(59,130,246,0); background: transparent; }
