@@ -240,7 +240,7 @@ export default function DispatcherOverridePanel({
                     <label className="block text-xs font-semibold text-gray-600 mb-2">
                         {D.overrideReason}
                     </label>
-                    <div className="grid grid-cols-2 gap-1.5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                         {OVERRIDE_REASONS.map(reason => (
                             <button
                                 key={reason.id}

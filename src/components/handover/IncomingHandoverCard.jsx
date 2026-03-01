@@ -159,7 +159,7 @@ export default function IncomingHandoverCard({ caseData, hospitalId, onAcknowled
 
                 {/* Vitals */}
                 <Section icon={<Activity size={14} />} title={tVitals}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
+                    <div className="handover-vitals-grid" style={{ display: 'grid', gap: '8px' }}>
                         <VitalChip label="HR" value={vitals.heartRate} unit="bpm" />
                         <VitalChip label="BP" value={vitals.systolicBP && vitals.diastolicBP ? `${vitals.systolicBP}/${vitals.diastolicBP}` : null} unit="mmHg" />
                         <VitalChip label="SpO₂" value={vitals.spO2} unit="%" />
@@ -185,7 +185,7 @@ export default function IncomingHandoverCard({ caseData, hospitalId, onAcknowled
 
                 {/* Timeline */}
                 <Section icon={<Clock size={14} />} title={tTimeline}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px' }}>
+                    <div className="handover-timeline-grid" style={{ display: 'grid', gap: '4px' }}>
                         <Row label={tCreated} value={formatTime(timeline.createdAt)} />
                         <Row label={tDispatched} value={formatTime(timeline.dispatchedAt)} />
                         <Row label={tAccepted} value={formatTime(timeline.acceptedAt)} />
@@ -277,6 +277,12 @@ export default function IncomingHandoverCard({ caseData, hospitalId, onAcknowled
             <style>{`
                 @keyframes spin { 100% { transform: rotate(360deg); } }
                 @keyframes handoverPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+                .handover-vitals-grid { grid-template-columns: repeat(3, 1fr); }
+                .handover-timeline-grid { grid-template-columns: 1fr 1fr; }
+                @media (max-width: 480px) {
+                    .handover-vitals-grid { grid-template-columns: repeat(2, 1fr); }
+                    .handover-timeline-grid { grid-template-columns: 1fr; }
+                }
             `}</style>
         </div>
     );

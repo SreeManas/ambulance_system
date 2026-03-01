@@ -848,40 +848,40 @@ export default function RoutingDashboard() {
                     <div className="max-w-7xl mx-auto flex items-center justify-between">
                         <div className="flex items-center gap-4">
                             <div className="flex items-center gap-2">
-                                <ShieldAlert className="w-6 h-6" />
-                                <span className="font-bold text-lg">MANUAL OVERRIDE ACTIVE</span>
+                                <ShieldAlert className="w-5 h-5 sm:w-6 sm:h-6" />
+                                <span className="font-bold text-sm sm:text-lg">MANUAL OVERRIDE ACTIVE</span>
                             </div>
-                            <span className="text-xl font-semibold">{activeOverride.hospitalName}</span>
-                            <span className="bg-white/20 px-3 py-1 rounded-full text-sm font-medium">
+                            <span className="text-base sm:text-xl font-semibold truncate">{activeOverride.hospitalName}</span>
+                            <span className="bg-white/20 px-3 py-1 rounded-full text-xs sm:text-sm font-medium hidden sm:inline">
                                 AI Recommendation Bypassed
                             </span>
                         </div>
-                        <div className="flex items-center gap-2 bg-amber-500 px-4 py-2 rounded-lg">
-                            <AlertTriangle className="w-5 h-5" />
-                            <span className="font-bold text-sm">Dispatched Override</span>
+                        <div className="flex items-center gap-2 bg-amber-500 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg flex-shrink-0">
+                            <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5" />
+                            <span className="font-bold text-xs sm:text-sm">Override</span>
                         </div>
                     </div>
                 </div>
             ) : topRecommendation ? (
-                <div className="bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-700 text-white px-6 py-3 shadow-lg">
-                    <div className="max-w-7xl mx-auto flex items-center justify-between">
-                        <div className="flex items-center gap-4">
+                <div className="bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-700 text-white px-4 sm:px-6 py-2 sm:py-3 shadow-lg">
+                    <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-2 sm:gap-4">
                             <div className="flex items-center gap-2">
-                                <CheckCircle className="w-6 h-6" />
-                                <span className="font-bold text-lg">RECOMMENDED:</span>
+                                <CheckCircle className="w-5 h-5 sm:w-6 sm:h-6" />
+                                <span className="font-bold text-sm sm:text-lg">RECOMMENDED:</span>
                             </div>
-                            <span className="text-xl font-semibold">{topRecommendation.hospitalName}</span>
-                            <span className="bg-white/20 px-3 py-1 rounded-full text-sm font-medium">
+                            <span className="text-base sm:text-xl font-semibold truncate max-w-[200px] sm:max-w-none">{topRecommendation.hospitalName}</span>
+                            <span className="bg-white/20 px-2 sm:px-3 py-0.5 sm:py-1 rounded-full text-xs sm:text-sm font-medium">
                                 ETA: {topRecommendation.etaMinutes} min
                             </span>
-                            <span className="bg-white/20 px-3 py-1 rounded-full text-sm font-medium">
+                            <span className="bg-white/20 px-2 sm:px-3 py-0.5 sm:py-1 rounded-full text-xs sm:text-sm font-medium">
                                 Score: {topRecommendation.suitabilityScore}%
                             </span>
                         </div>
                         {goldenHourRemaining && (
-                            <div className="flex items-center gap-2 bg-red-500 px-4 py-2 rounded-lg animate-pulse">
-                                <Timer className="w-5 h-5" />
-                                <span className="font-bold">GOLDEN HOUR: {goldenHourRemaining}min</span>
+                            <div className="flex items-center gap-2 bg-red-500 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg animate-pulse flex-shrink-0">
+                                <Timer className="w-4 h-4 sm:w-5 sm:h-5" />
+                                <span className="font-bold text-xs sm:text-base">GOLDEN HOUR: {goldenHourRemaining}min</span>
                             </div>
                         )}
                     </div>
@@ -889,48 +889,51 @@ export default function RoutingDashboard() {
             ) : null}
 
             {/* Header */}
-            <div className="bg-gray-800 border-b border-gray-700 px-6 py-4">
-                <div className="max-w-7xl mx-auto flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 bg-gradient-to-br from-red-500 to-orange-600 rounded-xl flex items-center justify-center">
-                            <Navigation className="w-6 h-6 text-white" />
+            <div className="bg-gray-800 border-b border-gray-700 px-4 sm:px-6 py-3 sm:py-4">
+                <div className="max-w-7xl mx-auto flex flex-wrap items-center gap-3 sm:gap-4">
+                    <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                        <div className="w-9 h-9 sm:w-10 sm:h-10 bg-gradient-to-br from-red-500 to-orange-600 rounded-xl flex items-center justify-center flex-shrink-0">
+                            <Navigation className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
                         </div>
-                        <div>
-                            <h1 className="text-2xl font-bold text-white">Routing Intelligence Dashboard</h1>
-                            <p className="text-gray-400 text-sm">Real-time ambulance routing and hospital selection</p>
+                        <div className="min-w-0">
+                            <h1 className="text-lg sm:text-2xl font-bold text-white truncate">Routing Intelligence Dashboard</h1>
+                            <p className="text-gray-400 text-xs sm:text-sm hidden sm:block">Real-time ambulance routing and hospital selection</p>
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2 sm:gap-4 flex-wrap ml-auto">
                         {/* Routing State Indicator */}
-                        <div className={`flex items-center gap-2 px-4 py-2 rounded-lg ${routingState === "evaluating" ? "bg-yellow-500/20 text-yellow-400" :
+                        <div className={`flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg ${routingState === "evaluating" ? "bg-yellow-500/20 text-yellow-400" :
                             routingState === "hospital_selected" ? "bg-green-500/20 text-green-400" :
                                 "bg-gray-700 text-gray-400"
                             }`}>
                             <Activity className="w-4 h-4" />
-                            <span className="text-sm font-medium capitalize">{routingState.replace("_", " ")}</span>
+                            <span className="text-xs sm:text-sm font-medium capitalize">{routingState.replace("_", " ")}</span>
                         </div>
 
                         {/* Phase 8: Routing Status Banner */}
-                        <RoutingStatusBanner
-                            capacityLastUpdated={capacityLastUpdated}
-                            scoringLastRun={scoringLastRun}
-                            isRecomputing={isRecomputing}
-                            hospitalCount={hospitals.length}
-                            lastRefreshedAt={lastRefreshedAt}
-                        />
+                        <div className="hidden md:block">
+                            <RoutingStatusBanner
+                                capacityLastUpdated={capacityLastUpdated}
+                                scoringLastRun={scoringLastRun}
+                                isRecomputing={isRecomputing}
+                                hospitalCount={hospitals.length}
+                                lastRefreshedAt={lastRefreshedAt}
+                            />
+                        </div>
                     </div>
 
                     {/* Compare Mode Toggle */}
                     <button
                         onClick={() => setShowCompareMode(!showCompareMode)}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${showCompareMode
+                        className={`flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg transition-colors text-xs sm:text-sm ${showCompareMode
                             ? "bg-blue-600 text-white"
                             : "bg-gray-700 text-gray-300 hover:bg-gray-600"
                             }`}
                     >
                         <Layers className="w-4 h-4" />
-                        Compare Routes
+                        <span className="hidden sm:inline">Compare Routes</span>
+                        <span className="sm:hidden">Compare</span>
                     </button>
 
                     {/* Manual Refresh Button */}
@@ -938,27 +941,38 @@ export default function RoutingDashboard() {
                         onClick={handleManualRefresh}
                         disabled={isManualRefreshing}
                         title={lastRefreshedAt ? `Last refreshed ${Math.round((Date.now() - lastRefreshedAt) / 1000)}s ago` : 'Refresh all data'}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${isManualRefreshing
+                        className={`flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg transition-all text-xs sm:text-sm ${isManualRefreshing
                             ? 'bg-emerald-600/30 text-emerald-400 cursor-not-allowed'
                             : 'bg-gray-700 text-gray-300 hover:bg-emerald-600 hover:text-white'
                             }`}
                     >
                         <RefreshCw className={`w-4 h-4 ${isManualRefreshing ? 'animate-spin' : ''}`} />
-                        <span className="text-sm font-medium">
-                            {isManualRefreshing ? 'Refreshing...' : 'Refresh Data'}
+                        <span className="font-medium">
+                            {isManualRefreshing ? 'Refreshing...' : 'Refresh'}
                         </span>
                     </button>
+                </div>
+
+                {/* Mobile-only Status Banner */}
+                <div className="md:hidden mt-2">
+                    <RoutingStatusBanner
+                        capacityLastUpdated={capacityLastUpdated}
+                        scoringLastRun={scoringLastRun}
+                        isRecomputing={isRecomputing}
+                        hospitalCount={hospitals.length}
+                        lastRefreshedAt={lastRefreshedAt}
+                    />
                 </div>
             </div>
 
             {/* Main Content */}
-            <div className="flex-1 flex overflow-hidden">
+            <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
                 {/* Map Container */}
                 <div className="flex-1 relative">
                     <div
                         ref={containerRef}
                         className="w-full h-full"
-                        style={{ minHeight: "600px" }}
+                        style={{ minHeight: "300px" }}
                     />
 
                     {/* Map Loading */}
@@ -972,7 +986,7 @@ export default function RoutingDashboard() {
                     )}
 
                     {/* Legend */}
-                    <div className="absolute bottom-6 right-6 bg-gray-800/95 backdrop-blur rounded-xl border border-gray-700 p-4 shadow-xl max-w-xs">
+                    <div className="absolute bottom-4 right-4 sm:bottom-6 sm:right-6 bg-gray-800/95 backdrop-blur rounded-xl border border-gray-700 p-3 sm:p-4 shadow-xl max-w-[200px] sm:max-w-xs">
                         <h4 className="text-white font-medium mb-3 text-sm">{T.hospitalRanking}</h4>
                         <div className="space-y-2">
                             <div className="flex items-center gap-2">
@@ -1029,7 +1043,7 @@ export default function RoutingDashboard() {
                 </div>
 
                 {/* Right Panel - ETA & Hospital List */}
-                <div className="w-96 bg-gray-800 border-l border-gray-700 overflow-y-auto">
+                <div className="w-full lg:w-96 bg-gray-800 border-t lg:border-t-0 lg:border-l border-gray-700 overflow-y-auto max-h-[50vh] lg:max-h-none">
                     {/* Case Selector */}
                     {emergencyCases.length > 1 && (
                         <div className="p-4 border-b border-gray-700">
