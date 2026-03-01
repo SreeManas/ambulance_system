@@ -8,6 +8,7 @@ import CameraCapture from './CameraCapture.jsx';
 import { Camera, X, Image as ImageIcon } from 'lucide-react';
 import TriagePanel from './ai/TriagePanel.jsx';
 import { buildTriagePayload, runAITriage, logTriageToFirestore } from '../services/triageService.js';
+import VoiceIntakePanel from './voice/VoiceIntakePanel.jsx';
 
 // Translation keys
 const TRANSLATIONS = {
@@ -130,6 +131,41 @@ export default function PatientVitalsForm() {
     const [triageResult, setTriageResult] = useState(null);
     const [triageLoading, setTriageLoading] = useState(false);
     const [triageError, setTriageError] = useState(null);
+
+    // Voice Intake: track which fields were auto-filled for glow animation
+    const [voiceFilledFields, setVoiceFilledFields] = useState(new Set());
+
+    // Apply glow to a field ID for 1.5s
+    const glowField = (id) => {
+        setVoiceFilledFields(prev => { const s = new Set(prev); s.add(id); return s; });
+        setTimeout(() => setVoiceFilledFields(prev => { const s = new Set(prev); s.delete(id); return s; }), 1500);
+    };
+
+    // Map AI-extracted voice data into form state
+    const applyVoiceData = (data) => {
+        if (!data) return;
+        if (data.patientName != null) { setPatientName(String(data.patientName)); glowField('v-patientName'); }
+        if (data.age != null) { setAge(String(data.age)); glowField('v-age'); }
+        if (data.gender != null && ['male', 'female', 'other'].includes(data.gender)) { setGender(data.gender); glowField('v-gender'); }
+        if (data.heartRate != null) { setHeartRate(String(data.heartRate)); glowField('v-hr'); }
+        if (data.systolicBP != null && data.diastolicBP != null) {
+            setBloodPressure(`${data.systolicBP}/${data.diastolicBP}`);
+            glowField('v-bp');
+        }
+        if (data.spo2 != null) { setSpo2(String(data.spo2)); glowField('v-spo2'); }
+        if (data.respiratoryRate != null) { setRespiratoryRate(String(data.respiratoryRate)); glowField('v-rr'); }
+        if (data.temperature != null) { setTemperature(String(data.temperature)); glowField('v-temp'); }
+        if (data.consciousnessLevel != null && ['alert', 'voice', 'pain', 'unresponsive'].includes(data.consciousnessLevel)) {
+            setConsciousnessLevel(data.consciousnessLevel); glowField('v-gcs');
+        }
+        if (data.emergencyType != null) { setEmergencyType(data.emergencyType); glowField('v-emergency'); }
+        if (data.symptoms != null || data.traumaIndicators != null) {
+            const note = [data.symptoms, data.traumaIndicators].filter(Boolean).join(' | ');
+            setParamedicNotes(prev => prev ? prev : note);
+            glowField('v-notes');
+        }
+        if (data.locationDescription != null) { setEnvironmentalRisks(data.locationDescription); glowField('v-location'); }
+    };
 
     // Translation hooks
     const tPatientIntake = useT(TRANSLATIONS.patientIntake);
@@ -556,6 +592,9 @@ export default function PatientVitalsForm() {
             </div>
 
             <form onSubmit={onSubmit} className="space-y-8">
+                {/* Voice Intake Mode — optional, at top of form */}
+                <VoiceIntakePanel onApplyData={applyVoiceData} />
+
                 {/* Section 1: Patient Identification */}
                 <section className="border border-gray-200 rounded-lg p-5 bg-gradient-to-r from-blue-50 to-indigo-50">
                     <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
