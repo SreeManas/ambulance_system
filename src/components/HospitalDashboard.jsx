@@ -288,16 +288,25 @@ export default function HospitalDashboard() {
     // Hospital Response Engine: listen for pending notifications for this hospital
     useEffect(() => {
         if (!userHospitalId) return;
+        console.log('[HospitalDashboard] 🔔 Subscribing to notifications for hospitalId:', userHospitalId);
         const q = query(collection(db, 'emergencyCases'), where('status', 'in', ['awaiting_response']));
         const unsub = onSnapshot(q, (snap) => {
+            console.log('[HospitalDashboard] Snapshot received, total awaiting_response docs:', snap.size);
             const cases = [];
             snap.forEach(d => {
                 const data = { id: d.id, ...d.data() };
-                const hasNotification = (data.hospitalNotifications || []).some(
+                const notifications = data.hospitalNotifications || [];
+                const hasNotification = notifications.some(
                     n => n.hospitalId === userHospitalId && n.response === null
+                );
+                console.log('[HospitalDashboard] Case', d.id, '→ notifications:', notifications.length,
+                    '| match:', hasNotification,
+                    '| notifIds:', notifications.map(n => n.hospitalId),
+                    '| myId:', userHospitalId
                 );
                 if (hasNotification) cases.push(data);
             });
+            console.log('[HospitalDashboard] ✅ Matched incoming cases:', cases.length);
             setIncomingCases(cases);
         });
         return () => unsub();

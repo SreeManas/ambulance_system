@@ -25,6 +25,7 @@ import HospitalExplainabilityPanel from "./HospitalExplainabilityPanel.jsx";
 import DispatcherOverridePanel from "./DispatcherOverridePanel.jsx";
 import OverrideAuditPanel from "./OverrideAuditPanel.jsx";
 import { useAuth } from "./auth/AuthProvider.jsx";
+import { dispatchHospitalNotification } from "../services/hospitalResponseEngine.js";
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN || "";
 
@@ -1181,6 +1182,22 @@ export default function RoutingDashboard() {
                                                                 const dest = hospLoc ? [hospLoc.longitude || hospLoc.lng, hospLoc.latitude || hospLoc.lat] : null;
                                                                 const ambulanceId = `amb_${selectedCase.id || Date.now()}`;
                                                                 const trackingLink = `${window.location.origin}/track/${ambulanceId}`;
+
+                                                                // ── HOSPITAL NOTIFICATION DISPATCH ──
+                                                                // Write notification into emergencyCases doc so HospitalDashboard listener picks it up
+                                                                try {
+                                                                    const acuity = selectedCase.acuityLevel || selectedCase.aiTriage?.acuityLevel || 3;
+                                                                    console.log('[Dispatch] Writing hospital notification:', {
+                                                                        caseId: selectedCase.id,
+                                                                        hospitalId: hospital.hospitalId,
+                                                                        acuity,
+                                                                        rankedCount: rankedHospitals.length,
+                                                                    });
+                                                                    await dispatchHospitalNotification(selectedCase.id, rankedHospitals, acuity);
+                                                                    console.log('[Dispatch] ✅ Hospital notification written successfully');
+                                                                } catch (err) {
+                                                                    console.error('[Dispatch] ❌ Hospital notification write failed:', err);
+                                                                }
 
                                                                 // Trigger navigation
                                                                 routerNavigate('/navigate', {
