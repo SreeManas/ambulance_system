@@ -86,13 +86,13 @@ export default function RoutingStatusBanner({
     };
 
     return (
-        <div className={`px-4 py-2.5 rounded-lg border ${bgColorClasses[status.color]} flex items-center justify-between shadow-sm`}>
-            <div className="flex items-center gap-2">
-                <span className={status.pulse ? 'animate-pulse' : ''}>{status.icon}</span>
-                <span className="text-sm font-medium">{status.text}</span>
+        <div className={`px-3 py-2 rounded-lg border ${bgColorClasses[status.color]} flex items-center justify-between gap-2 shadow-sm overflow-hidden`}>
+            <div className="flex items-center gap-2 min-w-0">
+                <span className={`flex-shrink-0 ${status.pulse ? 'animate-pulse' : ''}`}>{status.icon}</span>
+                <span className="text-xs sm:text-sm font-medium truncate">{status.text}</span>
             </div>
             {scoringLastRun && (
-                <span className="text-xs opacity-70">
+                <span className="text-xs opacity-70 hidden sm:inline flex-shrink-0">
                     Last scored: {new Date(scoringLastRun).toLocaleTimeString()}
                 </span>
             )}
