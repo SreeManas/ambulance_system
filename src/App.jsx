@@ -67,16 +67,16 @@ const Nav = () => {
 
   return (
     <header className="bg-white shadow-lg border-b border-gray-100 sticky top-0 z-50">
-      <div className="flex items-center justify-between px-6 py-4 w-full">
+      <div className="flex items-center justify-between px-3 sm:px-6 py-2 sm:py-4 w-full gap-2">
         {/* Left side - Logo and Brand */}
-        <div className="flex items-center space-x-3">
-          <Link to="/" className="flex items-center space-x-3 hover:scale-105 transition-transform duration-200">
+        <div className="flex items-center min-w-0 flex-shrink-0">
+          <Link to="/" className="flex items-center space-x-2 hover:scale-105 transition-transform duration-200 min-w-0">
             <img
               src="/logo.png"
               alt="MEDROUTER Logo"
-              className="w-10 h-10 rounded-xl shadow-md hover:shadow-lg transition-shadow duration-200 object-contain"
+              className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl shadow-md hover:shadow-lg transition-shadow duration-200 object-contain flex-shrink-0"
             />
-            <div>
+            <div className="min-w-0 hidden sm:block">
               <h1 className="text-xl font-bold text-gray-900">MEDROUTER</h1>
               <p className="text-xs text-gray-500 font-medium">Routes That Saves Lives</p>
             </div>
@@ -103,7 +103,7 @@ const Nav = () => {
         </nav>
 
         {/* Right side - Language and Login */}
-        <div className="flex items-center space-x-4">
+        <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
           <div className="hidden md:block">
             <RealTimeStatusIndicator />
           </div>
@@ -114,16 +114,16 @@ const Nav = () => {
           {/* User Authentication */}
           {currentUser ? (
             <div className="relative group">
-              <button className="flex items-center space-x-3 px-4 py-2.5 rounded-xl bg-gradient-to-r from-gray-50 to-gray-100 hover:from-gray-100 hover:to-gray-200 border border-gray-200 transition-all duration-200 shadow-sm hover:shadow-md">
-                <div className="w-8 h-8 bg-gradient-to-br from-red-600 to-red-800 rounded-full flex items-center justify-center shadow-sm">
-                  <span className="text-white text-sm font-bold">
+              <button className="flex items-center gap-1.5 sm:gap-3 px-2 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-gradient-to-r from-gray-50 to-gray-100 hover:from-gray-100 hover:to-gray-200 border border-gray-200 transition-all duration-200 shadow-sm hover:shadow-md">
+                <div className="w-7 h-7 sm:w-8 sm:h-8 bg-gradient-to-br from-red-600 to-red-800 rounded-full flex items-center justify-center shadow-sm flex-shrink-0">
+                  <span className="text-white text-xs sm:text-sm font-bold">
                     {currentUser.email ? currentUser.email.charAt(0).toUpperCase() : 'U'}
                   </span>
                 </div>
                 <span className="text-sm font-semibold text-gray-700 hidden sm:block">
                   {currentUser.displayName || currentUser.email?.split('@')[0] || 'User'}
                 </span>
-                <svg className="w-4 h-4 text-gray-500 transform group-hover:rotate-180 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-500 transform group-hover:rotate-180 transition-transform duration-200 hidden sm:block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>
               </button>
@@ -160,12 +160,12 @@ const Nav = () => {
           ) : (
             <Link
               to="/login"
-              className="flex items-center space-x-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-red-600 to-red-700 text-white hover:from-red-700 hover:to-red-800 transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-105"
+              className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-2.5 rounded-xl bg-gradient-to-r from-red-600 to-red-700 text-white hover:from-red-700 hover:to-red-800 transition-all duration-200 shadow-md hover:shadow-lg"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
               </svg>
-              <span className="text-sm font-semibold">{tLogin}</span>
+              <span className="text-sm font-semibold hidden sm:inline">{tLogin}</span>
             </Link>
           )}
 
