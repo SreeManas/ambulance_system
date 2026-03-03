@@ -46,7 +46,7 @@ service cloud.firestore {
     match /emergencyCases/{caseId} {
       allow read: if isAuthenticated() && (isParamedic() || isDispatcher() || isAdmin() || isHospitalAdmin());
       allow create: if isAuthenticated() && (isParamedic() || isDispatcher() || isAdmin());
-      allow update: if isAuthenticated() && (isDispatcher() || isAdmin() || isHospitalAdmin());
+      allow update: if isAuthenticated() && (isParamedic() || isDispatcher() || isAdmin() || isHospitalAdmin());
       allow delete: if isAdmin();
     }
 
