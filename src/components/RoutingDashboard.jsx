@@ -1184,19 +1184,34 @@ export default function RoutingDashboard() {
                                                                 const trackingLink = `${window.location.origin}/track/${ambulanceId}`;
 
                                                                 // ── HOSPITAL NOTIFICATION DISPATCH ──
-                                                                // Write notification into emergencyCases doc so HospitalDashboard listener picks it up
                                                                 try {
                                                                     const acuity = selectedCase.acuityLevel || selectedCase.aiTriage?.acuityLevel || 3;
-                                                                    console.log('[Dispatch] Writing hospital notification:', {
+                                                                    const eligibleCount = rankedHospitals.filter(h => !h.disqualified).length;
+                                                                    console.log('[Dispatch] Sending notification:', {
                                                                         caseId: selectedCase.id,
-                                                                        hospitalId: hospital.hospitalId,
+                                                                        selectedHospitalId: hospital.hospitalId,
                                                                         acuity,
-                                                                        rankedCount: rankedHospitals.length,
+                                                                        eligible: eligibleCount,
+                                                                        total: rankedHospitals.length,
                                                                     });
-                                                                    await dispatchHospitalNotification(selectedCase.id, rankedHospitals, acuity);
-                                                                    console.log('[Dispatch] ✅ Hospital notification written successfully');
+
+                                                                    // Build list to notify — use ranked list if eligible hospitals exist,
+                                                                    // otherwise force-notify the selected hospital directly
+                                                                    let listToNotify = rankedHospitals;
+                                                                    if (eligibleCount === 0) {
+                                                                        console.warn('[Dispatch] All hospitals disqualified — forcing notification to selected hospital:', hospital.hospitalId);
+                                                                        listToNotify = [{
+                                                                            hospitalId: hospital.hospitalId,
+                                                                            hospitalName: hospital.hospitalName,
+                                                                            suitabilityScore: hospital.suitabilityScore || 0,
+                                                                            disqualified: false,
+                                                                        }];
+                                                                    }
+
+                                                                    await dispatchHospitalNotification(selectedCase.id, listToNotify, acuity);
+                                                                    console.log('[Dispatch] ✅ Notification written for hospitalId:', hospital.hospitalId);
                                                                 } catch (err) {
-                                                                    console.error('[Dispatch] ❌ Hospital notification write failed:', err);
+                                                                    console.error('[Dispatch] ❌ Notification write failed:', err.message, err);
                                                                 }
 
                                                                 // Trigger navigation
