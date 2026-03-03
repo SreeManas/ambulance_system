@@ -14,8 +14,9 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import {
-    getFirestore, doc, setDoc, updateDoc, serverTimestamp, onSnapshot
+    getFirestore, doc, setDoc, updateDoc, serverTimestamp, onSnapshot, getDoc
 } from 'firebase/firestore';
+import { dispatchHospitalNotification } from '../../services/hospitalResponseEngine.js';
 import { getAuth } from 'firebase/auth';
 import { sendTrackingSMS, getTrackingLink } from '../../services/smsService.js';
 import {
@@ -69,11 +70,23 @@ export default function AmbulanceNavigation() {
 
     // Data from routing dashboard
     const caseData = navState.caseData || null;
-    const hospitalData = navState.hospitalData || null;
+    const initialHospitalData = navState.hospitalData || null;
     const originCoords = navState.origin || null;  // [lng, lat]
-    const destCoords = navState.destination || null;  // [lng, lat]
-    const hospitalName = navState.hospitalName || 'Hospital';
+    const initialDestCoords = navState.destination || null;  // [lng, lat]
+    const initialHospitalName = navState.hospitalName || 'Hospital';
     const ambulanceId = navState.ambulanceId || `amb_${Date.now()}`;
+    const initialRankedHospitals = navState.rankedHospitals || [];
+    const allHospitals = navState.hospitals || [];
+
+    // Mutable destination (changes on reroute)
+    const [destCoords, setDestCoords] = useState(initialDestCoords);
+    const [hospitalName, setHospitalName] = useState(initialHospitalName);
+    const [hospitalData, setHospitalData] = useState(initialHospitalData);
+    const [rejectedHospitalIds, setRejectedHospitalIds] = useState([]);
+
+    // Hospital response status
+    const [hospitalResponseStatus, setHospitalResponseStatus] = useState('pending'); // pending, accepted, rejected, rerouting
+    const [responseMessage, setResponseMessage] = useState(null);
 
     // Map refs
     const mapContainerRef = useRef(null);
@@ -115,23 +128,124 @@ export default function AmbulanceNavigation() {
         let goldenHourEndTime;
 
         if (timestamp) {
-            const incident = new Date(timestamp);
-            // Check if the date is valid
-            if (!isNaN(incident.getTime())) {
-                goldenHourEndTime = incident.getTime() + 60 * 60 * 1000; // +1 hour from incident
+            // Handle Firestore Timestamp objects (_seconds, toMillis)
+            let incidentMs;
+            if (timestamp._seconds) {
+                incidentMs = timestamp._seconds * 1000;
+            } else if (timestamp.toMillis) {
+                incidentMs = timestamp.toMillis();
+            } else if (timestamp.seconds) {
+                incidentMs = timestamp.seconds * 1000;
             } else {
-                // Invalid timestamp, use current time
+                incidentMs = new Date(timestamp).getTime();
+            }
+
+            if (!isNaN(incidentMs) && incidentMs > 0) {
+                goldenHourEndTime = incidentMs + 60 * 60 * 1000;
+            } else {
                 console.warn('[Navigation] Invalid timestamp format:', timestamp);
-                goldenHourEndTime = Date.now() + 60 * 60 * 1000; // +1 hour from now
+                goldenHourEndTime = Date.now() + 60 * 60 * 1000;
             }
         } else {
-            // No timestamp available, start golden hour countdown now
             console.warn('[Navigation] No incident timestamp found, using current time for golden hour');
-            goldenHourEndTime = Date.now() + 60 * 60 * 1000; // +1 hour from now
+            goldenHourEndTime = Date.now() + 60 * 60 * 1000;
         }
 
         setGoldenHourEnd(new Date(goldenHourEndTime));
     }, [caseData]);
+
+    // ─── Hospital Response Listener ──────────────────────────────────
+    useEffect(() => {
+        if (!caseData?.id) return;
+        const caseRef = doc(db, 'emergencyCases', caseData.id);
+        const unsub = onSnapshot(caseRef, (snap) => {
+            if (!snap.exists()) return;
+            const data = snap.data();
+            const notifications = data.hospitalNotifications || [];
+            const currentHospitalId = hospitalData?.hospitalId;
+            if (!currentHospitalId) return;
+
+            const myNotif = notifications.find(n => n.hospitalId === currentHospitalId);
+            if (!myNotif) return;
+
+            if (myNotif.response === 'accepted') {
+                setHospitalResponseStatus('accepted');
+                setResponseMessage(`✅ ${hospitalName} has accepted the case`);
+            } else if (myNotif.response === 'rejected') {
+                setHospitalResponseStatus('rejected');
+                setResponseMessage(`❌ ${hospitalName} rejected the case`);
+                // Trigger reroute
+                handleRejectionReroute(currentHospitalId, notifications);
+            } else {
+                setHospitalResponseStatus('pending');
+                setResponseMessage(null);
+            }
+        });
+        return () => unsub();
+    }, [caseData?.id, hospitalData?.hospitalId, hospitalName]);
+
+    // ─── Auto-Reroute on Rejection ──────────────────────────────────
+    const handleRejectionReroute = useCallback(async (rejectedId, allNotifications) => {
+        setHospitalResponseStatus('rerouting');
+        const newRejected = [...rejectedHospitalIds, rejectedId];
+        setRejectedHospitalIds(newRejected);
+
+        // Find all already-rejected hospital IDs
+        const allRejectedIds = new Set([
+            ...newRejected,
+            ...(allNotifications || []).filter(n => n.response === 'rejected').map(n => n.hospitalId)
+        ]);
+
+        // Find next eligible hospital from ranked list
+        const nextHospital = initialRankedHospitals.find(
+            h => !h.disqualified && !allRejectedIds.has(h.hospitalId)
+        );
+
+        if (!nextHospital) {
+            setResponseMessage('⚠️ No more hospitals available — contact dispatch');
+            return;
+        }
+
+        // Resolve the full hospital data for coordinates
+        const fullHosp = allHospitals.find(h => h.id === nextHospital.hospitalId);
+        const hospLoc = fullHosp?.basicInfo?.location || fullHosp?.location;
+        const newDest = hospLoc
+            ? [hospLoc.longitude || hospLoc.lng, hospLoc.latitude || hospLoc.lat]
+            : null;
+
+        if (!newDest) {
+            setResponseMessage(`⚠️ Cannot locate ${nextHospital.hospitalName} — contact dispatch`);
+            return;
+        }
+
+        setResponseMessage(`🔄 Rerouting to ${nextHospital.hospitalName}…`);
+        setHospitalName(nextHospital.hospitalName);
+        setHospitalData(nextHospital);
+        setDestCoords(newDest);
+
+        // Also dispatch notification to the new hospital
+        try {
+            const acuity = caseData?.acuityLevel || caseData?.aiTriage?.acuityLevel || 3;
+            const notifyList = [{ ...nextHospital, disqualified: false }];
+            await dispatchHospitalNotification(caseData.id, notifyList, acuity);
+            console.log('[Navigation] ✅ Notification sent to next hospital:', nextHospital.hospitalName);
+        } catch (err) {
+            console.error('[Navigation] Failed to notify next hospital:', err);
+        }
+
+        // Re-fetch directions (will happen via the destCoords useEffect)
+        setTimeout(() => {
+            setHospitalResponseStatus('pending');
+            setResponseMessage(`🏥 Now heading to ${nextHospital.hospitalName}`);
+        }, 3000);
+    }, [rejectedHospitalIds, initialRankedHospitals, allHospitals, caseData]);
+
+    // Re-fetch directions when destination changes
+    useEffect(() => {
+        if (mapLoaded && currentPosition && destCoords) {
+            fetchDirections(currentPosition, destCoords);
+        }
+    }, [destCoords]);
 
     useEffect(() => {
         if (!goldenHourEnd) return;
@@ -571,6 +685,29 @@ export default function AmbulanceNavigation() {
                             </div>
                         )}
                     </div>
+
+                    {/* Hospital Response Status Banner */}
+                    {responseMessage && (
+                        <div className={`mt-3 rounded-xl px-4 py-3 border backdrop-blur ${hospitalResponseStatus === 'accepted'
+                                ? 'bg-green-900/80 border-green-600'
+                                : hospitalResponseStatus === 'rejected' || hospitalResponseStatus === 'rerouting'
+                                    ? 'bg-red-900/80 border-red-600'
+                                    : 'bg-gray-800/80 border-gray-600'
+                            }`}>
+                            <div className={`text-sm font-bold ${hospitalResponseStatus === 'accepted' ? 'text-green-300'
+                                    : hospitalResponseStatus === 'rejected' || hospitalResponseStatus === 'rerouting'
+                                        ? 'text-red-300' : 'text-gray-300'
+                                }`}>
+                                {responseMessage}
+                            </div>
+                            {hospitalResponseStatus === 'rerouting' && (
+                                <div className="mt-1 flex items-center gap-2">
+                                    <Loader2 className="w-4 h-4 text-amber-400 animate-spin" />
+                                    <span className="text-amber-400 text-xs">Calculating new route…</span>
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
             </div>
 

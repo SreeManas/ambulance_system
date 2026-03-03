@@ -1222,7 +1222,9 @@ export default function RoutingDashboard() {
                                                                         origin,
                                                                         destination: dest,
                                                                         hospitalName: hospital.hospitalName,
-                                                                        ambulanceId
+                                                                        ambulanceId,
+                                                                        rankedHospitals,  // for auto-reroute on rejection
+                                                                        hospitals,        // for re-resolving hospital locations
                                                                     }
                                                                 });
 

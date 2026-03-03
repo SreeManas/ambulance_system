@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import IncomingCaseAlert from './hospital/IncomingCaseAlert.jsx';
+import AcceptedCaseCard from './hospital/AcceptedCaseCard.jsx';
 import IncomingHandoverCard from './handover/IncomingHandoverCard.jsx';
 import {
     getFirestore,
@@ -249,6 +250,7 @@ export default function HospitalDashboard() {
 
     // Hospital Response Engine: incoming case notifications
     const [incomingCases, setIncomingCases] = useState([]);
+    const [acceptedCases, setAcceptedCases] = useState([]);
     const [handoverCases, setHandoverCases] = useState([]);
 
     // Phase: Fetch user doc to check ownership
@@ -325,6 +327,28 @@ export default function HospitalDashboard() {
                 if (isTarget && data.handoverStatus === 'initiated') cases.push(data);
             });
             setHandoverCases(cases);
+        });
+        return () => unsub();
+    }, [userHospitalId, db]);
+
+    // Hospital Response Engine: listen for accepted cases for this hospital
+    useEffect(() => {
+        if (!userHospitalId) return;
+        const q = query(
+            collection(db, 'emergencyCases'),
+            where('status', 'in', ['accepted', 'enroute', 'handover_initiated', 'handover_acknowledged', 'completed'])
+        );
+        const unsub = onSnapshot(q, (snap) => {
+            const cases = [];
+            snap.forEach(d => {
+                const data = { id: d.id, ...d.data() };
+                // Check if this hospital accepted this case
+                const wasAccepted = (data.hospitalNotifications || []).some(
+                    n => n.hospitalId === userHospitalId && n.response === 'accepted'
+                );
+                if (wasAccepted) cases.push(data);
+            });
+            setAcceptedCases(cases);
         });
         return () => unsub();
     }, [userHospitalId, db]);
@@ -795,6 +819,21 @@ export default function HospitalDashboard() {
                     ))}
                 </div>
             )}
+
+            {/* Accepted Cases History */}
+            {acceptedCases.length > 0 && (
+                <div className="mb-6">
+                    <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2 mb-3">
+                        ✅ Accepted Cases ({acceptedCases.length})
+                    </h3>
+                    <div className="space-y-3">
+                        {acceptedCases.map(c => (
+                            <AcceptedCaseCard key={c.id} caseData={c} />
+                        ))}
+                    </div>
+                </div>
+            )}
+
             {/* Onboarding Hero Header */}
             {isOnboarding && (
                 <div className="mb-8 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-700 rounded-2xl p-8 text-white shadow-xl">
