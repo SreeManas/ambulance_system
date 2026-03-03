@@ -78,7 +78,7 @@ const Nav = () => {
             />
             <div>
               <h1 className="text-base sm:text-xl font-bold text-gray-900 leading-tight">MEDROUTER</h1>
-              <p className="text-xs text-gray-500 font-medium hidden xs:block">Routes That Saves Lives</p>
+              <p className="text-xs text-gray-500 font-medium">Routes That Saves Lives</p>
             </div>
           </Link>
         </div>
