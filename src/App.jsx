@@ -69,16 +69,16 @@ const Nav = () => {
     <header className="bg-white shadow-lg border-b border-gray-100 sticky top-0 z-50">
       <div className="flex items-center justify-between px-3 sm:px-6 py-2 sm:py-4 w-full gap-2">
         {/* Left side - Logo and Brand */}
-        <div className="flex items-center min-w-0 flex-shrink-0">
-          <Link to="/" className="flex items-center space-x-2 hover:scale-105 transition-transform duration-200 min-w-0">
+        <div className="flex items-center min-w-0">
+          <Link to="/" className="flex items-center gap-2 hover:scale-105 transition-transform duration-200">
             <img
               src="/logo.png"
               alt="MEDROUTER Logo"
-              className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl shadow-md hover:shadow-lg transition-shadow duration-200 object-contain flex-shrink-0"
+              className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl shadow-md object-contain flex-shrink-0"
             />
-            <div className="min-w-0 hidden sm:block">
-              <h1 className="text-xl font-bold text-gray-900">MEDROUTER</h1>
-              <p className="text-xs text-gray-500 font-medium">Routes That Saves Lives</p>
+            <div>
+              <h1 className="text-base sm:text-xl font-bold text-gray-900 leading-tight">MEDROUTER</h1>
+              <p className="text-xs text-gray-500 font-medium hidden xs:block">Routes That Saves Lives</p>
             </div>
           </Link>
         </div>
