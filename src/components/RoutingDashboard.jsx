@@ -962,10 +962,10 @@ export default function RoutingDashboard() {
             {/* Main Content */}
             <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
                 {/* Map Container */}
-                <div className="relative" style={{ minHeight: '50vh' }}>
+                <div className="flex-1 relative" style={{ minHeight: '50vh' }}>
                     <div
                         ref={containerRef}
-                        className="w-full h-full"
+                        className="absolute inset-0"
                     />
 
                     {/* Map Loading */}
