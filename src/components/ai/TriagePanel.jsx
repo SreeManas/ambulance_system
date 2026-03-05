@@ -136,6 +136,36 @@ export default function TriagePanel({ triageResult, isLoading, onRunTriage, erro
                             LEVEL {triageResult.acuity_level} — {config.label}
                         </div>
 
+                        {/* Ambulance Type Recommendation */}
+                        {triageResult.ambulanceType && (() => {
+                            const ambColors = {
+                                'ICU Ambulance': { bg: '#7f1d1d', text: '#fca5a5', border: '#dc2626' },
+                                'Trauma Ambulance': { bg: '#431407', text: '#fdba74', border: '#ea580c' },
+                                'Cardiac Ambulance': { bg: '#312e81', text: '#a5b4fc', border: '#6366f1' },
+                                'Basic Ambulance': { bg: '#064e3b', text: '#6ee7b7', border: '#10b981' },
+                                'Neonatal Ambulance': { bg: '#4a044e', text: '#f0abfc', border: '#d946ef' },
+                            };
+                            const c = ambColors[triageResult.ambulanceType] || ambColors['Basic Ambulance'];
+                            return (
+                                <div style={{
+                                    background: c.bg,
+                                    border: `1px solid ${c.border}`,
+                                    color: c.text,
+                                    fontWeight: 700,
+                                    fontSize: '12px',
+                                    padding: '4px 12px',
+                                    borderRadius: '999px',
+                                    letterSpacing: '0.05em',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '5px',
+                                    flexShrink: 0,
+                                }}>
+                                    🚑 {triageResult.ambulanceType}
+                                </div>
+                            );
+                        })()}
+
                         {/* Source pill */}
                         <span style={{
                             fontSize: '10px',

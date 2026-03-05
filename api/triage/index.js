@@ -39,6 +39,18 @@ function sanitizeNumber(value) {
     return isNaN(n) ? null : n;
 }
 
+// ─── Ambulance type recommendation based on acuity level ──────────────────
+function getAmbulanceType(acuityLevel) {
+    const map = {
+        1: 'ICU Ambulance',
+        2: 'Trauma Ambulance',
+        3: 'Cardiac Ambulance',
+        4: 'Basic Ambulance',
+        5: 'Basic Ambulance',
+    };
+    return map[acuityLevel] || 'Basic Ambulance';
+}
+
 // ─── Local fallback triage (START/SALT rules) ──────────────────────────────
 function runFallbackTriage(vitals) {
     const {
@@ -87,7 +99,8 @@ function buildFallback(level, label, flags, confidence) {
         confidence,
         clinical_flags: flags,
         reasoning_summary: `Rule-based triage (fallback): ${label}. ${flags.join('; ')}.`,
-        source: 'fallback_rules'
+        source: 'fallback_rules',
+        ambulanceType: getAmbulanceType(level),
     };
 }
 
@@ -386,8 +399,10 @@ export default async function handler(req, res) {
 
         // ── SAFETY DOMINANCE: Rule-based floor always wins ──────────────────
         const dominantResult = applySafetyDominance({ ...parsed, source: 'gemini' }, safe);
+        // Attach ambulance type recommendation
+        dominantResult.ambulanceType = getAmbulanceType(dominantResult.acuity_level);
 
-        console.log('[TRIAGE DEBUG] Final result:', JSON.stringify({ level: dominantResult.acuity_level, source: dominantResult.source, override: dominantResult.safety_override }));
+        console.log('[TRIAGE DEBUG] Final result:', JSON.stringify({ level: dominantResult.acuity_level, source: dominantResult.source, override: dominantResult.safety_override, ambulanceType: dominantResult.ambulanceType }));
 
         return res.status(200).json({
             success: true,

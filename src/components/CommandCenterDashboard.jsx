@@ -30,6 +30,7 @@ import useEscalationMonitor from '../hooks/useEscalationMonitor.js';
 import { CASE_STATUS } from '../services/hospitalResponseEngine.js';
 import scoringEngine from '../services/capabilityScoringEngine.js';
 import DriverVerificationPanel from "./DriverVerificationPanel.jsx";
+import LiveTelemetryPanel from './LiveTelemetryPanel.jsx';
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN || "";
 
@@ -827,6 +828,7 @@ export default function CommandCenterDashboard() {
                     {/* Panel Tabs */}
                     <div className="flex border-b border-gray-700">
                         {[
+                            { id: "dispatches", label: "Dispatches", icon: Activity },
                             { id: "cases", label: C.cases, icon: AlertTriangle },
                             { id: "fleet", label: C.fleet, icon: Truck },
                             { id: "hospitals", label: C.hospitals, icon: Building2 },
@@ -852,6 +854,98 @@ export default function CommandCenterDashboard() {
 
                     {/* Panel Content */}
                     <div className="flex-1 overflow-y-auto p-4">
+                        {/* Active Ambulance Dispatches Panel */}
+                        {activePanel === "dispatches" && (() => {
+                            const MOCK_DRIVERS = ['Ravi Kumar', 'Arjun Singh', 'Suresh Nair', 'Vikram Reddy', 'Deepak Sharma'];
+                            const MOCK_PARAMEDICS = ['Anil Sharma', 'Meena Patel', 'Kavitha Rao', 'Rajesh Iyer', 'Priya Das'];
+                            const AMB_TYPE_MAP = { 1: 'ICU Ambulance', 2: 'Trauma Ambulance', 3: 'Cardiac Ambulance', 4: 'Basic Ambulance', 5: 'Basic Ambulance' };
+                            const AMB_TYPE_COLORS = {
+                                'ICU Ambulance': '#dc2626',
+                                'Trauma Ambulance': '#ea580c',
+                                'Cardiac Ambulance': '#6366f1',
+                                'Basic Ambulance': '#10b981',
+                            };
+                            const seededPick = (arr, seed) => arr[seed % arr.length];
+                            const activeCases = emergencyCases.filter(ec =>
+                                ['dispatched', 'awaiting_response', 'accepted', 'enroute', 'handover_initiated'].includes(ec.caseStatus || ec.status)
+                                || ec.caseStatus === 'intake_completed'
+                            );
+                            return (
+                                <div className="space-y-3">
+                                    <div className="flex items-center justify-between mb-3">
+                                        <h3 className="text-white font-semibold text-sm flex items-center gap-2">
+                                            🚑 Active Ambulance Dispatches
+                                            <span className="bg-blue-500/20 text-blue-400 text-xs px-2 py-0.5 rounded-full border border-blue-500/30">
+                                                {activeCases.length || emergencyCases.length}
+                                            </span>
+                                        </h3>
+                                    </div>
+
+                                    {(activeCases.length > 0 ? activeCases : emergencyCases).map((ec, idx) => {
+                                        const acuity = ec.acuityLevel || ec.aiTriage?.acuityLevel || 4;
+                                        const ambType = ec.ambulanceType || AMB_TYPE_MAP[acuity] || 'Basic Ambulance';
+                                        const ambColor = AMB_TYPE_COLORS[ambType] || '#10b981';
+                                        const driver = seededPick(MOCK_DRIVERS, idx + 1);
+                                        const para = seededPick(MOCK_PARAMEDICS, idx + 2);
+                                        const ambId = `AMB-${String(12 + idx * 7).padStart(2, '0')}`;
+                                        const eta = 3 + (idx % 6);
+                                        const assignedAmb = ambulances.find(a => a.assignedCaseId === ec.id);
+                                        const phase = assignedAmb?.status === 'en_route_to_hospital' ? '📍 → 🏥 Ambulance Transport Route'
+                                            : assignedAmb?.status === 'on_scene' ? '📍 On Scene'
+                                                : '🚑 → 📍 En Route to Patient';
+                                        return (
+                                            <div key={ec.id} style={{
+                                                background: '#111827',
+                                                border: `1px solid ${ambColor}44`,
+                                                borderRadius: '10px',
+                                                padding: '12px',
+                                            }}>
+                                                {/* Header row */}
+                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                                    <span style={{ color: '#f1f5f9', fontWeight: 700, fontSize: '13px' }}>
+                                                        MED-{1000 + (parseInt(ec.id?.slice(-4), 16) || idx + 1) % 9000}
+                                                    </span>
+                                                    <span style={{
+                                                        background: `${ambColor}22`, border: `1px solid ${ambColor}`,
+                                                        color: ambColor, fontSize: '10px', fontWeight: 700,
+                                                        padding: '2px 8px', borderRadius: '999px',
+                                                    }}>
+                                                        🚑 {ambType}
+                                                    </span>
+                                                </div>
+                                                {/* Detail grid */}
+                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                                                    {[
+                                                        { l: 'Severity', v: `Level ${acuity}` },
+                                                        { l: 'Amb. ID', v: ambId },
+                                                        { l: 'Driver', v: driver },
+                                                        { l: 'Paramedic', v: para },
+                                                        { l: 'Status', v: phase },
+                                                        { l: 'ETA', v: `${eta} min` },
+                                                    ].map(({ l, v }) => (
+                                                        <div key={l} style={{ background: '#1e293b', borderRadius: '6px', padding: '6px 8px' }}>
+                                                            <div style={{ color: '#64748b', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{l}</div>
+                                                            <div style={{ color: '#e2e8f0', fontWeight: 600, fontSize: '11px', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v}</div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                {/* Live Telemetry inline */}
+                                                <div style={{ marginTop: '10px' }}>
+                                                    <LiveTelemetryPanel caseId={`MED-${1000 + (parseInt(ec.id?.slice(-4), 16) || idx + 1) % 9000}`} />
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+
+                                    {emergencyCases.length === 0 && (
+                                        <div className="text-center text-gray-500 py-8 text-sm">
+                                            No active dispatches. Cases will appear here after intake.
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })()}
+
                         {/* Cases Panel */}
                         {activePanel === "cases" && (
                             <>

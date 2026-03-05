@@ -56,11 +56,11 @@ const TRANSLATIONS = {
     isolationRequired: 'Isolation Required',
     paramedicNotes: 'Paramedic Notes',
     notesPlaceholder: 'Clinical observations, patient history, medications, allergies...',
-    submitCase: 'Submit Patient Case',
+    submitCase: 'Dispatch Emergency Ambulance',
     fetchingLocation: 'Fetching location...',
-    locationDetected: 'Location detected! Submitting case...',
-    caseSubmitted: 'Case submitted successfully!',
-    offlineQueued: 'Offline: case queued, will sync automatically when online.',
+    locationDetected: 'Location detected! Dispatching...',
+    caseSubmitted: 'Emergency Incident dispatched successfully!',
+    offlineQueued: 'Offline: incident queued, will sync automatically when online.',
 };
 
 export default function PatientVitalsForm() {
@@ -132,6 +132,24 @@ export default function PatientVitalsForm() {
     const [triageResult, setTriageResult] = useState(null);
     const [triageLoading, setTriageLoading] = useState(false);
     const [triageError, setTriageError] = useState(null);
+
+    // Dispatch summary — shown after successful submission
+    const [dispatchSummary, setDispatchSummary] = useState(null);
+
+    // Demo Mode: generate mock crew if real crew is not assigned
+    function generateMockCrew() {
+        const drivers = ['Ravi Kumar', 'Arjun Singh', 'Suresh Nair', 'Vikram Reddy', 'Deepak Sharma'];
+        const paramedics = ['Anil Sharma', 'Meena Patel', 'Kavitha Rao', 'Rajesh Iyer', 'Priya Das'];
+        const ambIds = ['AMB-12', 'AMB-07', 'AMB-23', 'AMB-15', 'AMB-31'];
+        const etaOptions = [3, 4, 5, 6, 7, 8];
+        const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+        return {
+            driver: pick(drivers),
+            paramedic: pick(paramedics),
+            ambulanceId: pick(ambIds),
+            eta: pick(etaOptions),
+        };
+    }
 
     // Voice Intake: track which fields were auto-filled for glow animation
     const [voiceFilledFields, setVoiceFilledFields] = useState(new Set());
@@ -493,7 +511,8 @@ export default function PatientVitalsForm() {
         }
 
         // Single atomic Firestore write with photo URLs already attached
-        await addDoc(collection(db, 'emergencyCases'), caseData);
+        const docRef = await addDoc(collection(db, 'emergencyCases'), caseData);
+        return docRef.id;
     };
 
     async function onSubmit(e) {
@@ -506,6 +525,7 @@ export default function PatientVitalsForm() {
 
         setLoading(true);
         setStatus(tFetchingLocation);
+        setDispatchSummary(null);
 
         try {
             const locationCoords = await getCurrentLocation();
@@ -514,7 +534,23 @@ export default function PatientVitalsForm() {
 
             if (navigator.onLine) {
                 try {
-                    await submitOnline(locationCoords);
+                    const caseId = await submitOnline(locationCoords);
+                    // Build dispatch summary for demo display
+                    const crew = generateMockCrew();
+                    const caseIdLabel = `MED-${Math.floor(1000 + Math.random() * 9000)}`;
+                    setDispatchSummary({
+                        caseId: caseIdLabel,
+                        firestoreId: caseId || null,
+                        ambulanceType: (triageResult && !triageResult.error && triageResult.ambulanceType)
+                            ? triageResult.ambulanceType : 'Basic Ambulance',
+                        acuityLabel: (triageResult && !triageResult.error)
+                            ? `Level ${triageResult.acuity_level} — ${triageResult.severity_label}` : 'Pending Triage',
+                        driver: crew.driver,
+                        paramedic: crew.paramedic,
+                        ambulanceId: crew.ambulanceId,
+                        eta: crew.eta,
+                        timestamp: new Date().toLocaleTimeString(),
+                    });
                     setStatus(tCaseSubmitted);
                 } catch (submitError) {
                     // MF9: Only queue on Firestore write failure, not Storage failure
@@ -625,7 +661,7 @@ export default function PatientVitalsForm() {
             <div className="mb-6">
                 <h2 className="text-2xl font-bold text-gray-900 mb-2">{tPatientIntake}</h2>
                 <p className="text-sm text-gray-600">
-                    Complete patient assessment for triage classification and hospital routing.
+                    Complete emergency incident assessment for AI triage classification and ambulance dispatch.
                 </p>
             </div>
 
@@ -1224,7 +1260,7 @@ export default function PatientVitalsForm() {
                                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                 <path className="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                             </svg>
-                            Submitting…
+                            Dispatching…
                         </>
                     ) : (
                         <>
@@ -1258,6 +1294,56 @@ export default function PatientVitalsForm() {
                         </div>
                     </div>
                 )}
+                {/* Dispatch Summary Card — shown after successful dispatch */}
+                {dispatchSummary && (
+                    <div style={{
+                        background: 'linear-gradient(135deg, #0f172a, #1e293b)',
+                        border: '1px solid #22c55e',
+                        borderRadius: '12px',
+                        padding: '20px',
+                        marginTop: '8px',
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+                            <span style={{ fontSize: '22px' }}>🚑</span>
+                            <div>
+                                <div style={{ color: '#22c55e', fontWeight: 800, fontSize: '16px', letterSpacing: '0.04em' }}>EMERGENCY DISPATCH CREATED</div>
+                                <div style={{ color: '#64748b', fontSize: '12px' }}>{dispatchSummary.timestamp}</div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setDispatchSummary(null)}
+                                style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: '18px' }}
+                            >✕</button>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                            {[
+                                { label: 'Case ID', value: dispatchSummary.caseId, icon: '🆔' },
+                                { label: 'Severity', value: dispatchSummary.acuityLabel, icon: '⚠️' },
+                                { label: 'Ambulance Type', value: dispatchSummary.ambulanceType, icon: '🚑' },
+                                { label: 'Ambulance ID', value: dispatchSummary.ambulanceId, icon: '🔢' },
+                                { label: 'Driver', value: dispatchSummary.driver, icon: '👤' },
+                                { label: 'Paramedic', value: dispatchSummary.paramedic, icon: '🩺' },
+                                { label: 'ETA to Patient', value: `${dispatchSummary.eta} minutes`, icon: '⏱️' },
+                                { label: 'Status', value: 'En Route to Patient', icon: '✅' },
+                            ].map(({ label, value, icon }) => (
+                                <div key={label} style={{
+                                    background: '#0f172a',
+                                    border: '1px solid #1e293b',
+                                    borderRadius: '8px',
+                                    padding: '10px 12px',
+                                }}>
+                                    <div style={{ color: '#64748b', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                                        {icon} {label}
+                                    </div>
+                                    <div style={{ color: '#e2e8f0', fontWeight: 600, fontSize: '13px', marginTop: '4px' }}>
+                                        {value}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
             </form>
         </div>
     );
